@@ -1,24 +1,46 @@
 import * as cheerio from "cheerio";
+import { apifyEnabled, fetchViaApify } from "@/lib/apify";
 
 export type ScrapedProduct = {
   sourceUrl: string;
+  finalUrl?: string;
   title?: string;
   description?: string;
   price?: string;
   images: string[];
   attributes: Record<string, string>;
+  // Raw bits we surface to the user on the review page.
+  rawText?: string;
+  rawMarkdown?: string;
+  scrapedVia?: "apify" | "fetch";
 };
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
 
-/**
- * Single-shot fetch + cheerio parse. Works on most product pages with public HTML.
- * For JS-heavy pages (1688/AliExpress are partly JS-rendered) this gets a minimum
- * usable signal: title, meta description, og:image, first product image. Enough
- * for Claude to write copy from.
- */
-export async function scrapeUrl(url: string, signal?: AbortSignal): Promise<ScrapedProduct> {
+async function fetchHtml(url: string, signal?: AbortSignal): Promise<{
+  html: string;
+  finalUrl: string;
+  text?: string;
+  markdown?: string;
+  via: "apify" | "fetch";
+}> {
+  // Prefer Apify when configured — it handles JS-rendered and anti-bot pages.
+  if (apifyEnabled()) {
+    try {
+      const a = await fetchViaApify(url);
+      return {
+        html: a.html,
+        finalUrl: a.finalUrl,
+        text: a.text,
+        markdown: a.markdown,
+        via: "apify",
+      };
+    } catch (e) {
+      // Fall through to direct fetch — Apify can timeout or block.
+      console.warn(`[scrape] Apify failed for ${url}: ${(e as Error).message}`);
+    }
+  }
   const res = await fetch(url, {
     headers: {
       "User-Agent": UA,
@@ -29,7 +51,23 @@ export async function scrapeUrl(url: string, signal?: AbortSignal): Promise<Scra
     redirect: "follow",
   });
   if (!res.ok) throw new Error(`scrape ${url}: HTTP ${res.status}`);
-  const html = await res.text();
+  return {
+    html: await res.text(),
+    finalUrl: res.url || url,
+    via: "fetch",
+  };
+}
+
+/**
+ * Fetch the URL (via Apify if available, plain fetch otherwise) and run a
+ * cheerio parse to extract product signal — title, description, images,
+ * price, JSON-LD attributes. The raw text/markdown from Apify is surfaced
+ * untouched on the review page so the user can see what was actually inside
+ * the supplier link.
+ */
+export async function scrapeUrl(url: string, signal?: AbortSignal): Promise<ScrapedProduct> {
+  const fetched = await fetchHtml(url, signal);
+  const html = fetched.html;
   const $ = cheerio.load(html);
 
   const title =
@@ -102,11 +140,15 @@ export async function scrapeUrl(url: string, signal?: AbortSignal): Promise<Scra
 
   return {
     sourceUrl: url,
+    finalUrl: fetched.finalUrl,
     title: title?.slice(0, 300),
     description: description?.slice(0, 4000),
     price,
     images,
     attributes,
+    rawText: fetched.text?.slice(0, 20_000),
+    rawMarkdown: fetched.markdown?.slice(0, 20_000),
+    scrapedVia: fetched.via,
   };
 }
 

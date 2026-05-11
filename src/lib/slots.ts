@@ -1,5 +1,5 @@
 /**
- * Maps the 11 CSV image-output columns to the prompt file used to generate them.
+ * Maps the 14 CSV image-output columns to the prompt file used to generate them.
  *
  * The CSV columns are pre-defined by Alivio's PDP layout. Each slot has a role,
  * a label that becomes the human-friendly name in the UI, and a prompt path
@@ -98,13 +98,6 @@ export const IMAGE_SLOTS: ImageSlot[] = [
     label: "Branding Detail",
     promptPath: "closeup/image_closeup_branding_v1.md",
     altPattern: "{{title}} — branding detail",
-  },
-  {
-    key: "UGC_Unboxing_Image",
-    shortKey: "ugc_unboxing",
-    label: "UGC Unboxing",
-    promptPath: "ugc/image_ugc_unboxing_v1.md",
-    altPattern: "{{title}} — customer unboxing",
   },
   {
     key: "UGC_In_Routine_Image",

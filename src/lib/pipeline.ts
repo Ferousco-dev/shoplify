@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { scrapeBest } from "@/lib/scrape";
+import { scrapeBest, type ScrapedProduct } from "@/lib/scrape";
 import { loadPrompt, render } from "@/lib/prompts";
 import { claudeJson } from "@/lib/claude";
 import { rankKeywords, generateSeoRecommendations } from "@/lib/serp";
@@ -192,10 +192,15 @@ function buildMetafields(
   return out;
 }
 
-export async function generateTextForRow(row: CsvRow): Promise<GeneratedText> {
+export async function generateTextForRow(
+  row: CsvRow,
+  preScraped?: ScrapedProduct | null,
+): Promise<GeneratedText> {
   if (!row.product_name) throw new Error("product_name is required");
 
-  const scraped = await scrapeBest(row).catch(() => null);
+  const scraped = preScraped !== undefined
+    ? preScraped
+    : await scrapeBest(row).catch(() => null);
 
   const apifyAmazon = scraped
     ? {
@@ -602,6 +607,344 @@ async function bumpJobCounters(jobId: string, outcome: "completed" | "failed") {
 }
 
 export { slotByShortKey };
+
+// ─── Two-phase pipeline ─────────────────────────────────────────────
+//
+// The original `processJobItem` ran scrape → copy → images → done in one
+// invocation. The product flow we ship today splits at the scrape boundary:
+//
+//   Phase A (`processJobItemScrape`) — runs from the CSV/runner side.
+//     Scrapes the supplier URL (Apify → cheerio fallback), persists the raw
+//     scraped data + reference images, and leaves the row in `awaiting_review`
+//     so the operator can inspect what was inside the link before any AI
+//     spend happens.
+//
+//   Phase B (`processProductGenerate`) — triggered by the operator pressing
+//     "Continue" on the review page. Runs Claude copy + SEO + lifestyle
+//     prompts, then Gemini generates the 14 product images. On success the
+//     parent job_item is marked completed and counters are bumped.
+
+async function loadJobItemRow(itemId: string): Promise<CsvRow | null> {
+  const { data } = await supabaseAdmin
+    .from("job_items")
+    .select("raw_row")
+    .eq("id", itemId)
+    .maybeSingle();
+  return ((data?.raw_row as CsvRow) || null);
+}
+
+export async function processJobItemScrape(opts: {
+  jobId: string;
+  itemId: string;
+  storeId: string;
+  row: CsvRow;
+}): Promise<{ productId: string }> {
+  const { jobId, itemId, storeId, row } = opts;
+  await supabaseAdmin
+    .from("job_items")
+    .update({ status: "running", updated_at: new Date().toISOString() })
+    .eq("id", itemId);
+
+  const sourceUrl =
+    row.alibaba1688 || row.amazon || row.aliexpress || row.alibaba || row.other || "";
+  const supplier =
+    (row.alibaba1688 && "1688") ||
+    (row.amazon && "amazon") ||
+    (row.aliexpress && "aliexpress") ||
+    (row.alibaba && "alibaba") ||
+    "generic";
+
+  const { data: existing } = await supabaseAdmin
+    .from("products")
+    .select("id")
+    .eq("store_id", storeId)
+    .eq("source_url", sourceUrl || `placeholder://${itemId}`)
+    .maybeSingle();
+
+  let productId: string;
+  if (existing?.id) {
+    productId = existing.id;
+    await supabaseAdmin
+      .from("products")
+      .update({
+        status: "scraping",
+        job_item_id: itemId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", productId);
+  } else {
+    const { data: inserted, error: insertErr } = await supabaseAdmin
+      .from("products")
+      .insert({
+        store_id: storeId,
+        job_item_id: itemId,
+        source_url: sourceUrl || `placeholder://${itemId}`,
+        source_supplier: supplier,
+        title: row.product_name,
+        category: row.category || null,
+        status: "scraping",
+      })
+      .select("id")
+      .single();
+    if (insertErr) throw new Error(`insert product: ${insertErr.message}`);
+    productId = inserted.id;
+  }
+
+  await supabaseAdmin
+    .from("job_items")
+    .update({ product_id: productId, updated_at: new Date().toISOString() })
+    .eq("id", itemId);
+
+  // Scrape — never throw out of phase A. A failed scrape still leaves the
+  // product reviewable (with whatever the CSV provided) so the operator can
+  // decide whether to retry or skip.
+  let scraped: ScrapedProduct | null = null;
+  let scrapeError: string | null = null;
+  try {
+    scraped = await scrapeBest(row);
+  } catch (e) {
+    scrapeError = (e as Error).message;
+  }
+
+  // Persist scraped data so phase B can reuse it (no double-scrape) and the
+  // review page can render it.
+  await supabaseAdmin
+    .from("products")
+    .update({
+      description_raw: scraped?.description || null,
+      raw_data: {
+        scraped: scraped || null,
+        scrapeError,
+        csvRow: row,
+      },
+      status: scraped ? "awaiting_review" : scraped === null && scrapeError ? "awaiting_review" : "awaiting_review",
+      failure_reason: scrapeError,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", productId);
+
+  // Save the supplier images as reference assets — they show up on the
+  // review page and are passed to Gemini as visual context during phase B.
+  if (scraped?.images?.length) {
+    const refRows = scraped.images.slice(0, 10).map((url, i) => ({
+      product_id: productId,
+      kind: "reference",
+      slot: `ref_${i}`,
+      storage_key: url,
+      public_url: url,
+      mime_type: "image/jpeg",
+      bytes: 0,
+      sha256: createHash("sha256").update(url).digest("hex").slice(0, 32),
+      meta: { source: "scrape", origin: scraped.scrapedVia || "fetch" },
+    }));
+    // Best effort — collisions on (product_id,slot,sha256) just skip.
+    await supabaseAdmin
+      .from("product_assets")
+      .upsert(refRows, { onConflict: "product_id,slot,sha256" });
+  }
+
+  await supabaseAdmin
+    .from("job_items")
+    .update({
+      status: "awaiting_review",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", itemId);
+
+  // Roll up the parent job to `awaiting_review` once nothing is left pending
+  // or running. Phase B will move it back to `running` and then to a
+  // terminal state when the operator finalizes each item.
+  const { data: stillOpen } = await supabaseAdmin
+    .from("job_items")
+    .select("id", { count: "exact", head: true })
+    .eq("job_id", jobId)
+    .in("status", ["pending", "running"]);
+  if (!stillOpen) {
+    await supabaseAdmin
+      .from("jobs")
+      .update({
+        status: "awaiting_review",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", jobId);
+  }
+
+  return { productId };
+}
+
+export async function processProductGenerate(opts: {
+  productId: string;
+  storeId: string;
+  creds: ShopifyCreds;
+}): Promise<void> {
+  const { productId, storeId, creds } = opts;
+
+  // Resolve the product + linked job_item + the raw CSV row we stashed
+  // during phase A.
+  const { data: product } = await supabaseAdmin
+    .from("products")
+    .select("id, store_id, job_item_id, raw_data, title")
+    .eq("id", productId)
+    .maybeSingle();
+  if (!product) throw new Error("Product not found");
+  if (product.store_id !== storeId)
+    throw new Error("Product belongs to a different store");
+
+  const raw = (product.raw_data || {}) as {
+    scraped?: ScrapedProduct | null;
+    csvRow?: CsvRow;
+  };
+  const row = raw.csvRow ||
+    (product.job_item_id ? await loadJobItemRow(product.job_item_id) : null) ||
+    ({ product_name: product.title || "" } as CsvRow);
+  if (!row.product_name && product.title) row.product_name = product.title;
+  const preScraped = raw.scraped ?? null;
+
+  const jobId = await (async () => {
+    if (!product.job_item_id) return null;
+    const { data } = await supabaseAdmin
+      .from("job_items")
+      .select("job_id")
+      .eq("id", product.job_item_id)
+      .maybeSingle();
+    return (data?.job_id as string) || null;
+  })();
+
+  await supabaseAdmin
+    .from("products")
+    .update({
+      status: "generating_copy",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", productId);
+  if (product.job_item_id) {
+    await supabaseAdmin
+      .from("job_items")
+      .update({ status: "running", updated_at: new Date().toISOString() })
+      .eq("id", product.job_item_id);
+  }
+  if (jobId) {
+    await supabaseAdmin
+      .from("jobs")
+      .update({ status: "running", updated_at: new Date().toISOString() })
+      .eq("id", jobId);
+  }
+
+  let text: GeneratedText;
+  try {
+    text = await generateTextForRow(row, preScraped);
+  } catch (e) {
+    const msg = (e as Error).message;
+    await supabaseAdmin
+      .from("products")
+      .update({
+        status: "failed_copy",
+        failure_reason: msg,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", productId);
+    if (product.job_item_id && jobId) {
+      await markItemFailed(jobId, product.job_item_id, msg);
+    }
+    throw e;
+  }
+
+  await supabaseAdmin
+    .from("products")
+    .update({
+      title: text.title,
+      shopify_handle: text.handle,
+      description_raw: text.descriptionHtml,
+      attributes: {
+        ...text.attributes,
+        seo: text.seo,
+        tags: text.tags,
+        metafields: text.metafields,
+        lifestylePrompts: text.lifestylePrompts,
+        referenceImages: text.referenceImages,
+      },
+      status: "generating_images",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", productId);
+
+  const slots = IMAGE_SLOTS;
+  const errors: string[] = [];
+  let cursor = 0;
+  const CONCURRENCY = 3;
+
+  async function worker() {
+    while (true) {
+      const idx = cursor++;
+      if (idx >= slots.length) return;
+      const slot = slots[idx];
+      try {
+        const img = await generateImageForSlot({
+          creds,
+          slot,
+          promptCtx: text.promptCtx,
+          referenceImages: text.referenceImages,
+          lifestylePrompt: text.lifestylePrompts[slot.shortKey],
+        });
+        await supabaseAdmin.from("product_assets").upsert(
+          {
+            product_id: productId,
+            kind: "generated",
+            slot: slot.shortKey,
+            storage_key: img.resourceUrl,
+            public_url: img.resourceUrl,
+            sha256: img.sha256,
+            mime_type: img.mimeType,
+            bytes: img.bytes.length,
+            meta: { alt: img.alt, label: img.label },
+          },
+          { onConflict: "product_id,slot,sha256" },
+        );
+        await supabaseAdmin.from("generations").insert({
+          product_id: productId,
+          kind: "image",
+          slot: slot.shortKey,
+          model: "gemini-2.5-flash-image",
+          status: "completed",
+        });
+      } catch (e) {
+        const msg = (e as Error).message;
+        errors.push(`${slot.shortKey}: ${msg}`);
+        await supabaseAdmin.from("generations").insert({
+          product_id: productId,
+          kind: "image",
+          slot: slot.shortKey,
+          model: "gemini-2.5-flash-image",
+          status: "failed",
+          error: msg,
+        });
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+
+  const allFailed = errors.length === slots.length;
+  await supabaseAdmin
+    .from("products")
+    .update({
+      status: allFailed ? "failed_images" : "completed",
+      failure_reason: errors.length > 0 ? errors.join("\n") : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", productId);
+
+  if (product.job_item_id && jobId) {
+    await supabaseAdmin
+      .from("job_items")
+      .update({
+        status: allFailed ? "failed" : "completed",
+        error: errors.length > 0 ? errors.join("\n").slice(0, 1000) : null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", product.job_item_id);
+    await bumpJobCounters(jobId, allFailed ? "failed" : "completed");
+  }
+}
 
 /**
  * Sweep job_items that are stuck in `status=running` past the grace window.

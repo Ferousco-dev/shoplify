@@ -158,10 +158,10 @@ export default function ConfigurePage() {
       // Free the sessionStorage so a back-tap doesn't re-dispatch the same job.
       sessionStorage.removeItem("csvData");
 
-      // The server-side runner is now chugging through rows. Send the user
-      // straight to the live job view where progress + per-product status
-      // appears as it happens.
-      router.push(`/dashboard/jobs/${body.jobId}`);
+      // Phase A (scrape) runs server-side from here. Take the user to the
+      // review page that polls until the first row is ready, then shows the
+      // scraped content + a Continue button to kick off phase B (Gemini).
+      router.push(`/dashboard/jobs/${body.jobId}/scrape-review`);
     } catch (e) {
       setStartError((e as Error).message);
       setStarting(false);

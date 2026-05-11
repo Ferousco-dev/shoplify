@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { processJobItem, recoverStuckItems, type CsvRow } from "@/lib/pipeline";
+import { processJobItemScrape, recoverStuckItems, type CsvRow } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
 // One row's worth of work fits well under 300s on Vercel Pro (~45s scrape+copy
@@ -77,14 +77,12 @@ export async function POST(
   }
 
   try {
-    await processJobItem({
+    // Phase A only: scrape and persist raw scraped data. Image generation
+    // happens later, on user "Continue" via /api/products/:id/generate.
+    await processJobItemScrape({
       jobId,
       itemId: nextItem.id,
       storeId: job.store_id as string,
-      creds: {
-        shopDomain: body.shopDomain,
-        accessToken: body.accessToken,
-      },
       row: (nextItem.raw_row ?? {}) as CsvRow,
     });
   } catch (e) {

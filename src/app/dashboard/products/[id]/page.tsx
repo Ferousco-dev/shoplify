@@ -184,6 +184,47 @@ export default function ProductDetailPage({
     },
   });
 
+  const publishMutation = useMutation({
+    mutationFn: async () => {
+      const p = productQuery.data;
+      if (!p) throw new Error("Product not loaded");
+      const attrs = (p.attributes || {}) as Record<string, unknown>;
+      const seo = (attrs.seo as { title?: string; description?: string }) || undefined;
+      const tags = Array.isArray(attrs.tags) ? (attrs.tags as string[]) : undefined;
+      const metafields = Array.isArray(attrs.metafields)
+        ? (attrs.metafields as Array<{ namespace: string; key: string; type: string; value: string }>)
+        : undefined;
+      const generatedAssets = p.assets.filter((a) => a.kind === "generated" && a.public_url);
+      const media = generatedAssets.map((a) => ({
+        resourceUrl: a.public_url as string,
+        alt: (a as { meta?: { alt?: string } }).meta?.alt,
+      }));
+      const res = await fetch("/api/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: p.id,
+          draft: {
+            title: p.title || "Untitled product",
+            handle: p.shopify_handle || undefined,
+            descriptionHtml: p.description_raw || "",
+            seo,
+            tags,
+            metafields,
+          },
+          media,
+          vendor: "Alivio Plus Co",
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      return body as { adminUrl?: string; product?: { id: string; handle: string } };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["product", id] });
+    },
+  });
+
   if (productQuery.isLoading) {
     return (
       <div className="py-2xl flex justify-center">
@@ -245,6 +286,25 @@ export default function ProductDetailPage({
               View in Shopify
               <Icon name="open_in_new" size={14} />
             </a>
+          )}
+          {product.status === "completed" && !product.shopify_product_id && (
+            <Button
+              size="sm"
+              onClick={() => publishMutation.mutate()}
+              disabled={publishMutation.isPending}
+            >
+              {publishMutation.isPending ? (
+                <>
+                  <DotsLoader size="sm" />
+                  Publishing…
+                </>
+              ) : (
+                <>
+                  <Icon name="shopping_bag" size={16} />
+                  Push to Shopify
+                </>
+              )}
+            </Button>
           )}
           {isTerminal && (
             <Button size="sm" variant="danger" onClick={() => setConfirm("delete")}>
