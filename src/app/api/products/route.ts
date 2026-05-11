@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { requireStore } from "@/lib/session";
 
 export type ProductSummary = {
   id: string;
@@ -23,11 +24,16 @@ type AssetRef = {
 };
 
 export async function GET() {
+  const auth = await requireStore();
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const { data, error } = await supabaseAdmin
     .from("products")
     .select(
       "id, store_id, source_url, source_supplier, title, category, status, shopify_product_id, shopify_handle, created_at, updated_at, product_assets(public_url, kind, slot)",
     )
+    .eq("store_id", auth.storeId)
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -52,6 +58,10 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireStore();
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const body = (await req.json()) as {
     id?: string;
     status?: string;
@@ -67,7 +77,11 @@ export async function POST(req: Request) {
   if (body.shopify_product_id !== undefined) update.shopify_product_id = body.shopify_product_id;
   if (body.shopify_handle !== undefined) update.shopify_handle = body.shopify_handle;
 
-  const { error } = await supabaseAdmin.from("products").update(update).eq("id", body.id);
+  const { error } = await supabaseAdmin
+    .from("products")
+    .update(update)
+    .eq("id", body.id)
+    .eq("store_id", auth.storeId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

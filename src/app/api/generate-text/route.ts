@@ -270,8 +270,27 @@ function inferCategory(name: string): string {
   return "Wellness Tool";
 }
 
+function coerceText(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) {
+    return v
+      .map((x) => (typeof x === "string" ? x : coerceText(x)))
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  if (typeof v === "object") {
+    const obj = v as Record<string, unknown>;
+    if (typeof obj.text === "string") return obj.text;
+    if (typeof obj.value === "string") return obj.value;
+    if (Array.isArray(obj.paragraphs)) return coerceText(obj.paragraphs);
+    return "";
+  }
+  return String(v);
+}
+
 function esc(s: unknown): string {
-  return String(s ?? "")
+  return coerceText(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");

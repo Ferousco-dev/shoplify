@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { requireShopify } from "@/lib/session";
+import { requireShopify, requireStore } from "@/lib/session";
 
 export type JobSummary = {
   id: string;
@@ -18,6 +18,10 @@ export type JobSummary = {
 };
 
 export async function GET(req: Request) {
+  const auth = await requireStore();
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
   const url = new URL(req.url);
   const limit = Number(url.searchParams.get("limit") || "50");
 
@@ -26,6 +30,7 @@ export async function GET(req: Request) {
     .select(
       "id, store_id, source_filename, status, total_items, completed_items, failed_items, started_at, finished_at, error, created_at, updated_at",
     )
+    .eq("store_id", auth.storeId)
     .order("created_at", { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 200));
 

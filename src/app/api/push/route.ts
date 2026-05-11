@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { productCreate, type MediaInput, type ProductInput } from "@/lib/shopify";
-import { requireShopify } from "@/lib/session";
+import { requireStore } from "@/lib/session";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -18,14 +18,13 @@ type Req = {
   media: Array<{ resourceUrl: string; alt?: string }>;
   vendor?: string;
   productType?: string;
+  productId?: string; // Optional Supabase product UUID; preferred over title match.
 };
 
 export async function POST(req: Request) {
-  let creds: { shopDomain: string; accessToken: string };
-  try {
-    creds = await requireShopify();
-  } catch {
-    return NextResponse.json({ error: "Not connected to Shopify" }, { status: 401 });
+  const auth = await requireStore();
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   const body = (await req.json()) as Req;
@@ -51,56 +50,94 @@ export async function POST(req: Request) {
     mediaContentType: "IMAGE",
   }));
 
+  let product: { id: string; handle: string; title: string; status: string };
   try {
-    const product = await productCreate(creds, input, media);
-    const adminUrl = `https://${creds.shopDomain.replace(".myshopify.com", "")}.myshopify.com/admin/products/${product.id.split("/").pop()}`;
-
-    // Save to Supabase (update draft to published)
-    const shopifyProductId = product.id.split("/").pop();
-    try {
-      await supabaseAdmin
-        .from("products")
-        .update({
-          status: "published",
-          attributes: {
-            seo: body.draft.seo,
-            tags: body.draft.tags || [],
-            metafields: body.draft.metafields || [],
-            handle: body.draft.handle,
-          },
-        })
-        .eq("title", body.draft.title);
-
-      // If no matching draft found, create new record
-      try {
-        await supabaseAdmin
-          .from("products")
-          .insert({
-            title: body.draft.title,
-            status: "published",
-            source_supplier: "manual",
-            attributes: {
-              seo: body.draft.seo,
-              tags: body.draft.tags || [],
-              metafields: body.draft.metafields || [],
-              handle: body.draft.handle,
-            },
-            raw_data: { shopify_product_id: shopifyProductId },
-          });
-      } catch {
-        // Already saved, ignore
-      }
-    } catch (dbError) {
-      console.warn("Failed to save to Supabase:", dbError);
-      // Don't fail the request if DB save fails - product was already created in Shopify
-    }
-
-    return NextResponse.json({
-      ok: true,
-      product,
-      adminUrl,
-    });
+    product = await productCreate(
+      { shopDomain: auth.shopDomain, accessToken: auth.accessToken },
+      input,
+      media,
+    );
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
+
+  const shopifyProductId = product.id.split("/").pop() ?? null;
+  const adminUrl = `https://${auth.shopDomain.replace(".myshopify.com", "")}.myshopify.com/admin/products/${shopifyProductId}`;
+
+  // Persist the published state to Supabase. We never let a DB failure mask a
+  // successful Shopify create — that would tell the user "push failed" while
+  // the product is live in their store. Failures here are logged and surfaced
+  // as a non-fatal warning.
+  let dbWarning: string | null = null;
+  try {
+    let updatedRows = 0;
+    if (body.productId) {
+      const { data, error } = await supabaseAdmin
+        .from("products")
+        .update({
+          status: "published",
+          shopify_product_id: shopifyProductId,
+          shopify_handle: product.handle,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", body.productId)
+        .eq("store_id", auth.storeId)
+        .select("id");
+      if (error) throw error;
+      updatedRows = data?.length ?? 0;
+    }
+
+    if (updatedRows === 0) {
+      // Fall back to a title match within this store (last-write-wins on
+      // titles that happen to collide; acceptable for the small expected scale).
+      const { data, error } = await supabaseAdmin
+        .from("products")
+        .update({
+          status: "published",
+          shopify_product_id: shopifyProductId,
+          shopify_handle: product.handle,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("title", body.draft.title)
+        .eq("store_id", auth.storeId)
+        .is("shopify_product_id", null)
+        .select("id");
+      if (error) throw error;
+      updatedRows = data?.length ?? 0;
+    }
+
+    if (updatedRows === 0) {
+      // No draft in our DB — insert a clean record so the product shows up in
+      // /dashboard/products. Use the synthetic `source_url` shape that the
+      // pipeline uses for manual entries, and keep the source supplier marker.
+      const placeholder = `manual://${shopifyProductId ?? Date.now()}`;
+      const { error } = await supabaseAdmin.from("products").insert({
+        store_id: auth.storeId,
+        source_url: placeholder,
+        source_supplier: "manual",
+        title: body.draft.title,
+        description_raw: body.draft.descriptionHtml,
+        shopify_handle: product.handle,
+        shopify_product_id: shopifyProductId,
+        status: "published",
+        attributes: {
+          seo: body.draft.seo,
+          tags: body.draft.tags || [],
+          metafields: body.draft.metafields || [],
+          handle: body.draft.handle,
+        },
+      });
+      if (error) throw error;
+    }
+  } catch (dbErr) {
+    dbWarning = (dbErr as Error).message;
+    console.warn("[push] DB write failed (Shopify push succeeded):", dbWarning);
+  }
+
+  return NextResponse.json({
+    ok: true,
+    product,
+    adminUrl,
+    ...(dbWarning ? { dbWarning } : {}),
+  });
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { requireStore } from "@/lib/session";
 
 export type ProductAsset = {
   id: string;
@@ -42,8 +43,29 @@ export type ProductDetail = {
   recent_generations: GenerationEntry[];
 };
 
+async function ensureOwnedProduct(productId: string, storeId: string) {
+  const { data: row, error } = await supabaseAdmin
+    .from("products")
+    .select("store_id")
+    .eq("id", productId)
+    .maybeSingle();
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  if (!row || row.store_id !== storeId) {
+    return NextResponse.json({ error: "Product not found" }, { status: 404 });
+  }
+  return null;
+}
+
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const auth = await requireStore();
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const ownership = await ensureOwnedProduct(id, auth.storeId);
+  if (ownership) return ownership;
 
   const [productRes, assetsRes, gensRes] = await Promise.all([
     supabaseAdmin.from("products").select("*").eq("id", id).maybeSingle(),
@@ -75,6 +97,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const auth = await requireStore();
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+  const ownership = await ensureOwnedProduct(id, auth.storeId);
+  if (ownership) return ownership;
   const { error } = await supabaseAdmin.from("products").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

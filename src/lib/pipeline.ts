@@ -93,8 +93,27 @@ function inferCategory(name: string): string {
   return "Wellness Tool";
 }
 
+function coerceText(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) {
+    return v
+      .map((x) => (typeof x === "string" ? x : coerceText(x)))
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  if (typeof v === "object") {
+    const obj = v as Record<string, unknown>;
+    if (typeof obj.text === "string") return obj.text;
+    if (typeof obj.value === "string") return obj.value;
+    if (Array.isArray(obj.paragraphs)) return coerceText(obj.paragraphs);
+    return "";
+  }
+  return String(v);
+}
+
 function esc(s: unknown): string {
-  return String(s ?? "")
+  return coerceText(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
@@ -583,3 +602,99 @@ async function bumpJobCounters(jobId: string, outcome: "completed" | "failed") {
 }
 
 export { slotByShortKey };
+
+/**
+ * Sweep job_items that are stuck in `status=running` past the grace window.
+ *
+ * On Vercel a serverless function can die mid-flight (cold-shutdown, timeout,
+ * a hot reload in dev). When that happens the item row stays as `running`
+ * forever and the runner will never pick it up again (it only looks at
+ * `pending`). This sweep looks at all stuck items belonging to `storeId` and
+ * decides per-item whether the underlying product looks complete (enough
+ * generated assets) and should be finalized, or whether to mark it failed so
+ * the job can roll up to a terminal status.
+ */
+export async function recoverStuckItems(
+  storeId: string,
+  graceMinutes = 10,
+): Promise<{ finalized: number; failed: number }> {
+  const cutoff = new Date(Date.now() - graceMinutes * 60_000).toISOString();
+  // Pull jobs for this store first so we can filter items correctly.
+  const { data: jobRows } = await supabaseAdmin
+    .from("jobs")
+    .select("id")
+    .eq("store_id", storeId)
+    .in("status", ["running", "pending", "dispatched"]);
+  if (!jobRows?.length) return { finalized: 0, failed: 0 };
+  const jobIds = jobRows.map((j) => j.id as string);
+
+  const { data: stuck } = await supabaseAdmin
+    .from("job_items")
+    .select("id, job_id, product_id, updated_at")
+    .in("job_id", jobIds)
+    .eq("status", "running")
+    .lt("updated_at", cutoff);
+  if (!stuck?.length) return { finalized: 0, failed: 0 };
+
+  const minSlots = Math.max(1, Math.floor(IMAGE_SLOTS.length / 2));
+  let finalized = 0;
+  let failed = 0;
+
+  for (const item of stuck) {
+    const itemId = item.id as string;
+    const jobId = item.job_id as string;
+    const productId = item.product_id as string | null;
+
+    let canFinalize = false;
+    if (productId) {
+      const { count } = await supabaseAdmin
+        .from("product_assets")
+        .select("id", { count: "exact", head: true })
+        .eq("product_id", productId)
+        .eq("kind", "generated");
+      canFinalize = (count ?? 0) >= minSlots;
+    }
+
+    if (canFinalize && productId) {
+      await supabaseAdmin
+        .from("products")
+        .update({
+          status: "completed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", productId);
+      await supabaseAdmin
+        .from("job_items")
+        .update({
+          status: "completed",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", itemId);
+      await bumpJobCounters(jobId, "completed");
+      finalized++;
+    } else {
+      await supabaseAdmin
+        .from("job_items")
+        .update({
+          status: "failed",
+          error: "stuck-recovery: runner died before completion",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", itemId);
+      if (productId) {
+        await supabaseAdmin
+          .from("products")
+          .update({
+            status: "failed_images",
+            failure_reason: "runner died before completion",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", productId);
+      }
+      await bumpJobCounters(jobId, "failed");
+      failed++;
+    }
+  }
+  return { finalized, failed };
+}
+

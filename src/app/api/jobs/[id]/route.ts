@@ -1,5 +1,30 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { requireStore } from "@/lib/session";
+
+async function ensureOwnedJob(jobId: string) {
+  const auth = await requireStore();
+  if ("error" in auth) {
+    return {
+      error: NextResponse.json({ error: auth.error }, { status: auth.status }),
+    };
+  }
+  const { data: job, error } = await supabaseAdmin
+    .from("jobs")
+    .select("id, store_id")
+    .eq("id", jobId)
+    .maybeSingle();
+  if (error) {
+    return { error: NextResponse.json({ error: error.message }, { status: 500 }) };
+  }
+  if (!job) {
+    return { error: NextResponse.json({ error: "Job not found" }, { status: 404 }) };
+  }
+  if (job.store_id !== auth.storeId) {
+    return { error: NextResponse.json({ error: "Job not found" }, { status: 404 }) };
+  }
+  return { auth };
+}
 
 export type JobDetail = {
   id: string;
@@ -45,6 +70,8 @@ export type JobProductSummary = {
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const guard = await ensureOwnedJob(id);
+  if ("error" in guard) return guard.error;
 
   const [jobRes, storeRes, itemsRes, productsRes] = await Promise.all([
     supabaseAdmin.from("jobs").select("*").eq("id", id).maybeSingle(),
@@ -149,6 +176,8 @@ const ACTIVE_STATUSES = new Set([
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const guard = await ensureOwnedJob(id);
+  if ("error" in guard) return guard.error;
   const body = (await req.json().catch(() => ({}))) as { action?: string };
 
   if (body.action !== "cancel") {
@@ -194,6 +223,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
+  const guard = await ensureOwnedJob(id);
+  if ("error" in guard) return guard.error;
   const { error } = await supabaseAdmin.from("jobs").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { processJobItem, type CsvRow } from "@/lib/pipeline";
+import { processJobItem, recoverStuckItems, type CsvRow } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
 // One row's worth of work fits well under 300s on Vercel Pro (~45s scrape+copy
@@ -46,6 +46,15 @@ export async function POST(
   if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
   if (job.status === "cancelled" || job.status === "completed" || job.status === "failed") {
     return NextResponse.json({ ok: true, stopped: true, reason: job.status });
+  }
+
+  // Sweep any items left in `running` for too long. A previous serverless
+  // invocation may have died mid-flight; without this sweep the row stays
+  // running forever and the job is permanently stuck.
+  if (job.store_id) {
+    await recoverStuckItems(job.store_id as string).catch((e) => {
+      console.warn(`[runner ${jobId}] recoverStuckItems failed:`, e);
+    });
   }
 
   // Pick the next pending row. Sequential order so the UI feels coherent.
