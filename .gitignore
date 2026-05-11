@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# Production
+*.tsbuildinfo
+next-env.d.ts
+
+# Env files — never commit secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# OS noise
+.DS_Store
+Thumbs.db
+*.log
+
+# Editor
+.vscode/
+.idea/
+
+# Vercel
+.vercel
+
+# Local agent config
+.claude/

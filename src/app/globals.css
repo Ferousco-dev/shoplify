@@ -1,0 +1,128 @@
+/* === Alivio Plus brand fonts ===
+ * Removed @imports here in favour of <link> tags in app/layout.tsx — the
+ * link tags load earlier (no PostCSS round-trip), can use `display=swap`
+ * with `onLoad` to defer non-critical text fonts, and let us preconnect
+ * Google Fonts before the stylesheet fires.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-background text-text-primary antialiased;
+  font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-tap-highlight-color: transparent;
+}
+
+* {
+  border-color: theme("colors.border");
+}
+
+::selection {
+  background-color: #aecfa8;
+}
+
+/* === Mobile / a11y guards === */
+input,
+textarea,
+select {
+  font-size: 16px;
+}
+@media (min-width: 768px) {
+  input,
+  textarea,
+  select {
+    font-size: inherit;
+  }
+}
+
+/* Safe-area utilities */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top), 0px);
+}
+.pl-safe {
+  padding-left: max(env(safe-area-inset-left), 0px);
+}
+.pr-safe {
+  padding-right: max(env(safe-area-inset-right), 0px);
+}
+
+/* === Brand decorative elements === */
+.soft-grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+.organic-blob {
+  position: absolute;
+  z-index: -1;
+  filter: blur(80px);
+  opacity: 0.15;
+  border-radius: 100%;
+}
+
+/* Material Symbols base settings */
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: "liga";
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  vertical-align: middle;
+}
+.material-symbols-outlined.filled {
+  font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24;
+}
+.material-symbols-outlined:not([data-loaded]) {
+  visibility: visible;
+}
+
+/* === Legacy component classes (kept for un-migrated pages) === */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-primary text-on-primary hover:opacity-90 shadow-sm;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-text-muted hover:text-primary hover:bg-surface-variant/40;
+  }
+  .btn-outline {
+    @apply btn border border-primary bg-transparent text-primary hover:bg-primary/5;
+  }
+  .input {
+    @apply w-full rounded-lg border border-border bg-surface-container-low px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20;
+  }
+  .card {
+    @apply rounded-2xl sm:rounded-3xl border border-border/40 bg-warm-white p-6 shadow-card;
+  }
+}
