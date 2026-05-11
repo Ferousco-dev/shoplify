@@ -12,7 +12,12 @@ export type ShopifyCreds = { shopDomain: string; accessToken: string };
 
 export type CsvRow = {
   product_name?: string;
+  // `category` is the canonical column the pipeline reads from. Operators
+  // sometimes label this column `product_type` or `product_category` instead
+  // — both are accepted (see resolveCategory).
   category?: string;
+  product_type?: string;
+  product_category?: string;
   amazon?: string;
   aliexpress?: string;
   alibaba?: string;
@@ -23,6 +28,10 @@ export type CsvRow = {
   lifestyle_usage_rules?: string;
   pairs_well_with?: string;
 };
+
+function resolveCategory(row: CsvRow): string | undefined {
+  return row.category || row.product_type || row.product_category || undefined;
+}
 
 type CopyJson = {
   "alivio.seo_title"?: string;
@@ -221,7 +230,7 @@ export async function generateTextForRow(
     ...scraped?.attributes,
   };
 
-  const category = row.category || inferCategory(row.product_name);
+  const category = resolveCategory(row) || inferCategory(row.product_name);
 
   const ctx = {
     title: row.product_name,
@@ -440,7 +449,7 @@ export async function processJobItem(opts: {
         source_url: sourceUrl || `placeholder://${itemId}`,
         source_supplier: supplier,
         title: row.product_name,
-        category: row.category || null,
+        category: resolveCategory(row) || null,
         status: "generating_copy",
       })
       .select("id")
@@ -702,7 +711,7 @@ export async function processJobItemScrape(opts: {
         source_url: sourceUrl || `placeholder://${itemId}`,
         source_supplier: supplier,
         title: row.product_name,
-        category: row.category || null,
+        category: resolveCategory(row) || null,
         status: "scraping",
       })
       .select("id")

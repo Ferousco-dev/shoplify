@@ -58,7 +58,33 @@ export async function POST(req: Request) {
       media,
     );
   } catch (e) {
-    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+    const msg = (e as Error).message;
+    // Shopify rejects duplicate handles within a single store. If we hit this,
+    // append a short suffix and try once more. This happens whenever the
+    // operator has already pushed a draft for the same product (e.g. testing
+    // multiple times) — autoresolving is much friendlier than asking them
+    // to manually edit the handle.
+    if (/Handle .* already in use/i.test(msg)) {
+      const suffix = `-${Math.random().toString(36).slice(2, 6)}`;
+      const retryInput: ProductInput = {
+        ...input,
+        handle: `${input.handle || body.draft.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}${suffix}`.slice(0, 255),
+      };
+      try {
+        product = await productCreate(
+          { shopDomain: auth.shopDomain, accessToken: auth.accessToken },
+          retryInput,
+          media,
+        );
+      } catch (e2) {
+        return NextResponse.json(
+          { error: (e2 as Error).message },
+          { status: 500 },
+        );
+      }
+    } else {
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
   }
 
   const shopifyProductId = product.id.split("/").pop() ?? null;

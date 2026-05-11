@@ -50,6 +50,12 @@ export default function NewProductPage() {
     Papa.parse<Record<string, string>>(file, {
       header: true,
       skipEmptyLines: true,
+      // Normalize headers so the pipeline reads them regardless of how the
+      // operator capitalised or spaced the column. Examples that all match:
+      //   "Product Name", "product_name", " PRODUCT NAME " → product_name
+      //   "Product type" / "Product Category" → product_type / product_category
+      transformHeader: (h) =>
+        h.trim().toLowerCase().replace(/\s+/g, "_"),
       complete: (result) => {
         setRowCount(result.data.length);
         setParsedData(result.data);
