@@ -30,6 +30,7 @@ const ACTIVE = new Set([
   "dispatched",
   "scraping",
   "scraped",
+  "awaiting_review",
   "normalizing",
   "uploading_assets",
   "syncing_shopify",
@@ -172,7 +173,7 @@ export default function JobHistoryPage() {
               {filtered.map((j) => (
                 <li key={j.id}>
                   <Link
-                    href={`/dashboard/jobs/${j.id}`}
+                    href={j.status === "awaiting_review" ? `/dashboard/jobs/${j.id}/scrape-review` : `/dashboard/jobs/${j.id}`}
                     className="block px-md py-md hover:bg-surface-container-low/40 transition-colors"
                   >
                     <div className="flex items-start gap-sm">
@@ -253,7 +254,7 @@ export default function JobHistoryPage() {
                       </td>
                       <td className="px-lg py-md text-right">
                         <Link
-                          href={`/dashboard/jobs/${j.id}`}
+                          href={j.status === "awaiting_review" ? `/dashboard/jobs/${j.id}/scrape-review` : `/dashboard/jobs/${j.id}`}
                           className="text-primary text-xs font-ui-label hover:underline inline-flex items-center gap-xs px-sm py-1"
                         >
                           Open
@@ -408,9 +409,11 @@ function StatusPill({ status }: { status: string }) {
             : "bg-surface-variant text-text-muted";
 
   const label =
-    ACTIVE.has(status) && status !== "pending"
-      ? "Processing"
-      : status.charAt(0).toUpperCase() + status.slice(1);
+    status === "awaiting_review"
+      ? "Awaiting review"
+      : ACTIVE.has(status) && status !== "pending"
+        ? "Processing"
+        : status.charAt(0).toUpperCase() + status.slice(1);
 
   return (
     <span

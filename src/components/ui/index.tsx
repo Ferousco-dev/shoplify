@@ -150,6 +150,7 @@ export function statusBadgeTone(status: string): BadgeTone {
   if (status === "completed") return "success";
   if (status.startsWith("failed")) return "danger";
   if (status === "partial") return "warn";
+  if (status === "awaiting_review") return "draft";
   if (
     status === "pending" ||
     status === "dispatched" ||

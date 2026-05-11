@@ -99,12 +99,15 @@ export default function ScrapeReviewPage({
     setGenerating(true);
     setError(null);
     try {
+      // Endpoint is fire-and-forget — it returns as soon as the worker is
+      // dispatched. The progress page polls /api/products/:id to render the
+      // 14-tile live grid.
       const res = await fetch(`/api/products/${product.id}/generate`, {
         method: "POST",
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-      router.push(`/dashboard/products/${product.id}`);
+      router.push(`/dashboard/products/${product.id}/generating`);
     } catch (e) {
       setError((e as Error).message);
       setGenerating(false);
