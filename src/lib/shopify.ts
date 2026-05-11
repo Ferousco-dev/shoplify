@@ -13,15 +13,24 @@ export async function shopifyGql<T>(
   variables: Record<string, unknown> = {},
 ): Promise<T> {
   const url = `https://${creds.shopDomain}/admin/api/${API_VERSION}/graphql.json`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "X-Shopify-Access-Token": creds.accessToken,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query, variables }),
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": creds.accessToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, variables }),
+      cache: "no-store",
+    });
+  } catch (e) {
+    const err = e as Error & { cause?: { code?: string; message?: string } };
+    const causeMsg = err.cause?.code || err.cause?.message || "";
+    throw new Error(
+      `Shopify fetch failed${causeMsg ? `: ${causeMsg}` : ""} (${err.message})`,
+    );
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Shopify HTTP ${res.status}: ${text.slice(0, 400)}`);
@@ -100,7 +109,16 @@ export async function uploadBytesToStaged(
   const form = new FormData();
   for (const p of target.parameters) form.append(p.name, p.value);
   form.append("file", new Blob([new Uint8Array(bytes)], { type: mimeType }));
-  const res = await fetch(target.url, { method: "POST", body: form });
+  let res: Response;
+  try {
+    res = await fetch(target.url, { method: "POST", body: form });
+  } catch (e) {
+    const err = e as Error & { cause?: { code?: string; message?: string } };
+    const causeMsg = err.cause?.code || err.cause?.message || "";
+    throw new Error(
+      `Staged upload fetch failed${causeMsg ? `: ${causeMsg}` : ""} (${err.message})`,
+    );
+  }
   if (!res.ok && res.status !== 201 && res.status !== 204) {
     const text = await res.text();
     throw new Error(`Staged POST failed ${res.status}: ${text.slice(0, 300)}`);

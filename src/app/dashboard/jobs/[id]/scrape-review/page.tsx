@@ -59,11 +59,20 @@ export default function ScrapeReviewPage({
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
 
+  const [allDone, setAllDone] = useState(false);
+
   // Poll the job until it has at least one item with status=awaiting_review.
   // Phase A is fast (a single Apify call + DB writes), so 2s ticks are fine.
+  // When this page is re-entered after publishing a draft, this same loop
+  // automatically picks the *next* awaiting row in the CSV — implementing the
+  // multi-product walk-through without any extra navigation logic.
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    // Reset state if jobId changes (e.g. operator navigates to a different job).
+    setProduct(null);
+    setAllDone(false);
+    setError(null);
     async function tick() {
       try {
         const res = await fetch(`/api/jobs/${jobId}`);
@@ -80,7 +89,16 @@ export default function ScrapeReviewPage({
           const p = (await r.json()) as ProductDetail;
           if (!alive) return;
           setProduct(p);
-          return; // stop polling
+          return; // stop polling — operator now drives this row
+        }
+        // No awaiting_review items left. If everything is in a terminal state
+        // (or already past awaiting_review), we're done.
+        const stillScraping = data.items.some(
+          (i) => i.status === "pending" || i.status === "running",
+        );
+        if (!stillScraping) {
+          setAllDone(true);
+          return;
         }
         timer = setTimeout(tick, 2000);
       } catch (e) {
@@ -129,6 +147,47 @@ export default function ScrapeReviewPage({
         </Link>
         <div className="rounded-3xl border border-error/30 bg-error-container/40 p-lg text-on-error-container">
           {error}
+        </div>
+      </div>
+    );
+  }
+
+  if (allDone) {
+    const total = job?.total_items ?? 0;
+    const done = job?.completed_items ?? 0;
+    return (
+      <div className="flex flex-col gap-lg max-w-2xl pb-[100px]">
+        <Link
+          href="/dashboard/jobs"
+          className="inline-flex items-center gap-xs font-ui-label text-ui-label text-text-muted hover:text-primary"
+        >
+          <Icon name="chevron_left" size={18} />
+          All jobs
+        </Link>
+        <div className="rounded-3xl border border-success/40 bg-success/10 p-xl text-center">
+          <Icon name="check_circle" size={48} filled className="text-success mx-auto" />
+          <h1 className="font-section-heading text-section-heading mt-md">
+            All products processed
+          </h1>
+          <p className="text-text-muted mt-xs">
+            {done}/{total} item{total === 1 ? "" : "s"} from this CSV reached a
+            terminal state. Pick up any draft from your products list.
+          </p>
+          <div className="flex items-center justify-center gap-sm mt-lg flex-wrap">
+            <Link
+              href="/dashboard/products"
+              className="inline-flex items-center gap-xs px-md py-sm rounded-full bg-primary text-on-primary font-ui-label text-ui-label hover:opacity-90 transition-opacity"
+            >
+              View products
+              <Icon name="arrow_forward" size={16} />
+            </Link>
+            <Link
+              href="/dashboard/new"
+              className="inline-flex items-center gap-xs px-md py-sm rounded-full border border-border font-ui-label text-ui-label text-primary hover:bg-primary/5 transition-colors"
+            >
+              Start a new job
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -192,6 +251,15 @@ export default function ScrapeReviewPage({
       <div>
         <p className="font-ui-label text-ui-label text-text-muted text-sm">
           Step 1 of 2 · Review what was scraped
+          {job && job.total_items > 1 && (
+            <>
+              {" · "}
+              <span className="font-mono-data">
+                Row {(job.completed_items + job.failed_items) + 1} of{" "}
+                {job.total_items}
+              </span>
+            </>
+          )}
         </p>
         <h1 className="font-section-heading text-section-heading mt-xs">
           {product.title || scraped?.title || "Scraped product"}

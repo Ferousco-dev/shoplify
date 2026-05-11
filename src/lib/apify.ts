@@ -69,8 +69,10 @@ export async function fetchViaApify(url: string): Promise<ApifyFetchResult> {
           startUrls: [{ url }],
           maxCrawlPages: 1,
           maxCrawlDepth: 0,
-          // Use Playwright Chromium so JS-rendered supplier pages load fully.
-          crawlerType: "playwright:chromium",
+          // Use Playwright Chrome so JS-rendered supplier pages load fully.
+          // (Actor accepts "playwright:chrome" / "playwright:firefox" /
+          // "playwright:adaptive" / "cheerio" / "jsdom".)
+          crawlerType: "playwright:chrome",
           saveHtml: true,
           saveMarkdown: true,
           // Apify's defaults are reasonable; only override what we care about.

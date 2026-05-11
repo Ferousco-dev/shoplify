@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useMemo } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -223,16 +223,58 @@ export default function GeneratingPage({
       </section>
 
       {isFailed && (
-        <div className="flex gap-sm">
-          <Button onClick={() => router.refresh()}>Reload</Button>
-          <Link
-            href={`/dashboard/products/${id}`}
-            className="inline-flex items-center gap-xs px-md py-sm rounded-full border border-border font-ui-label text-ui-label text-primary hover:bg-primary/5"
-          >
-            Inspect product →
-          </Link>
-        </div>
+        <>
+          {product?.failure_reason && (
+            <details className="rounded-2xl border border-error/30 bg-error-container/40 p-md text-sm text-on-error-container">
+              <summary className="cursor-pointer font-ui-label">
+                Error details (click to expand)
+              </summary>
+              <pre className="mt-sm whitespace-pre-wrap break-words text-xs font-mono max-h-[300px] overflow-y-auto">
+                {product.failure_reason}
+              </pre>
+            </details>
+          )}
+          <RetryButton id={id} />
+        </>
       )}
+    </div>
+  );
+}
+
+function RetryButton({ id }: { id: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="flex flex-wrap items-center gap-sm">
+      <Button
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setErr(null);
+          try {
+            const res = await fetch(`/api/products/${id}/generate`, {
+              method: "POST",
+            });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+            router.refresh();
+          } catch (e) {
+            setErr((e as Error).message);
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? <DotsLoader size="sm" /> : <Icon name="refresh" size={16} />}
+        {busy ? "Restarting…" : "Retry generation"}
+      </Button>
+      <Link
+        href={`/dashboard/products/${id}`}
+        className="inline-flex items-center gap-xs px-md py-sm rounded-full border border-border font-ui-label text-ui-label text-primary hover:bg-primary/5"
+      >
+        Inspect product →
+      </Link>
+      {err && <span className="text-xs text-error">{err}</span>}
     </div>
   );
 }

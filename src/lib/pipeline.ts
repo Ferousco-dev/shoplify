@@ -496,7 +496,34 @@ export async function processJobItem(opts: {
   const slots = IMAGE_SLOTS;
   const errors: string[] = [];
   let cursor = 0;
-  const CONCURRENCY = 3;
+  // Lowered from 3 → 2: Gemini's free-tier limit on gemini-2.5-flash-image
+  // is tight enough that bursts cause socket-level "fetch failed" tears.
+  // Two-at-a-time keeps throughput high without tripping the limit.
+  const CONCURRENCY = 2;
+
+  async function runSlotWithRetry(slot: ImageSlot) {
+    let lastErr: Error | undefined;
+    // One retry on transient failure. Most Gemini quirks (rate-limit drop,
+    // empty image part, socket reset) recover on the second attempt after a
+    // short jittered backoff.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await generateImageForSlot({
+          creds,
+          slot,
+          promptCtx: text.promptCtx,
+          referenceImages: text.referenceImages,
+          lifestylePrompt: text.lifestylePrompts[slot.shortKey],
+        });
+      } catch (e) {
+        lastErr = e as Error;
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
+        }
+      }
+    }
+    throw lastErr;
+  }
 
   async function worker() {
     while (true) {
@@ -504,13 +531,7 @@ export async function processJobItem(opts: {
       if (idx >= slots.length) return;
       const slot = slots[idx];
       try {
-        const img = await generateImageForSlot({
-          creds,
-          slot,
-          promptCtx: text.promptCtx,
-          referenceImages: text.referenceImages,
-          lifestylePrompt: text.lifestylePrompts[slot.shortKey],
-        });
+        const img = await runSlotWithRetry(slot);
         await supabaseAdmin.from("product_assets").upsert(
           {
             product_id: productId,
@@ -871,7 +892,34 @@ export async function processProductGenerate(opts: {
   const slots = IMAGE_SLOTS;
   const errors: string[] = [];
   let cursor = 0;
-  const CONCURRENCY = 3;
+  // Lowered from 3 → 2: Gemini's free-tier limit on gemini-2.5-flash-image
+  // is tight enough that bursts cause socket-level "fetch failed" tears.
+  // Two-at-a-time keeps throughput high without tripping the limit.
+  const CONCURRENCY = 2;
+
+  async function runSlotWithRetry(slot: ImageSlot) {
+    let lastErr: Error | undefined;
+    // One retry on transient failure. Most Gemini quirks (rate-limit drop,
+    // empty image part, socket reset) recover on the second attempt after a
+    // short jittered backoff.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await generateImageForSlot({
+          creds,
+          slot,
+          promptCtx: text.promptCtx,
+          referenceImages: text.referenceImages,
+          lifestylePrompt: text.lifestylePrompts[slot.shortKey],
+        });
+      } catch (e) {
+        lastErr = e as Error;
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 2000 + Math.random() * 2000));
+        }
+      }
+    }
+    throw lastErr;
+  }
 
   async function worker() {
     while (true) {
@@ -879,13 +927,7 @@ export async function processProductGenerate(opts: {
       if (idx >= slots.length) return;
       const slot = slots[idx];
       try {
-        const img = await generateImageForSlot({
-          creds,
-          slot,
-          promptCtx: text.promptCtx,
-          referenceImages: text.referenceImages,
-          lifestylePrompt: text.lifestylePrompts[slot.shortKey],
-        });
+        const img = await runSlotWithRetry(slot);
         await supabaseAdmin.from("product_assets").upsert(
           {
             product_id: productId,

@@ -171,6 +171,20 @@ export default function ProductDetailPage({
     },
   });
 
+  // Needed to build the Shopify admin URL for the draft.
+  const shopQuery = useQuery<
+    | { connected: false }
+    | { connected: true; shop: { name?: string; domain?: string } }
+  >({
+    queryKey: ["shop-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/shopify/connect");
+      if (!res.ok) return { connected: false };
+      return await res.json();
+    },
+    staleTime: 60_000,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/products/${id}`, { method: "DELETE" });
@@ -222,6 +236,13 @@ export default function ProductDetailPage({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["product", id] });
+      // If this product belonged to a CSV job, send the operator back to the
+      // job's review page — that page auto-picks the next `awaiting_review`
+      // row (or shows an "all done" message if this was the last one).
+      const jobId = productQuery.data?.job_id;
+      if (jobId) {
+        router.push(`/dashboard/jobs/${jobId}/scrape-review`);
+      }
     },
   });
 
@@ -251,6 +272,15 @@ export default function ProductDetailPage({
   const isTerminal = TERMINAL.has(product.status) || isFailed(product.status);
   const overallPct = Math.round((generatedCount / totalSlots) * 100);
 
+  // Build the Shopify admin URL for the draft. `shopify_handle` alone is the
+  // store-facing handle (e.g. "ice-pack-large"), not a navigable URL — so we
+  // construct the admin product page from the session's shop domain.
+  const shopDomain = (shopQuery.data?.connected ? shopQuery.data.shop?.domain : null) ?? null;
+  const shopifyAdminUrl =
+    shopDomain && product.shopify_product_id
+      ? `https://${shopDomain.replace(".myshopify.com", "")}.myshopify.com/admin/products/${product.shopify_product_id}`
+      : null;
+
   return (
     <div className="flex flex-col gap-lg">
       <header className="flex flex-col md:flex-row md:items-start md:justify-between gap-md">
@@ -273,17 +303,17 @@ export default function ProductDetailPage({
           {product.shopify_product_id && (
             <span className="inline-flex items-center gap-xs px-md py-sm rounded-full bg-badge-ready-bg text-badge-ready-text font-ui-label text-xs font-bold uppercase tracking-wider">
               <Icon name="check_circle" size={14} />
-              In Shopify
+              Saved as draft
             </span>
           )}
-          {product.shopify_handle && (
+          {shopifyAdminUrl && (
             <a
-              href={`https://${product.shopify_handle}`}
+              href={shopifyAdminUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-xs px-md py-sm rounded-full border border-border font-ui-label text-ui-label text-primary hover:bg-primary/5 transition-colors"
             >
-              View in Shopify
+              View draft in Shopify
               <Icon name="open_in_new" size={14} />
             </a>
           )}
@@ -296,12 +326,12 @@ export default function ProductDetailPage({
               {publishMutation.isPending ? (
                 <>
                   <DotsLoader size="sm" />
-                  Publishing…
+                  Saving draft…
                 </>
               ) : (
                 <>
                   <Icon name="shopping_bag" size={16} />
-                  Push to Shopify
+                  Save as Shopify draft
                 </>
               )}
             </Button>

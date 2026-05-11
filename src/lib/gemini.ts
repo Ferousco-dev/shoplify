@@ -106,14 +106,26 @@ export async function geminiImage(opts: {
   }
 
   const url = `${BASE}/models/${opts.model || MODEL}:generateContent?key=${apiKey}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts }],
-      generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
-    }),
-  });
+  // Surface the actual reason when Node's fetch dies with the bare "fetch
+  // failed" message — the real cause lives on err.cause and is usually
+  // socket / DNS / TLS / abort.
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts }],
+        generationConfig: { responseModalities: ["IMAGE", "TEXT"] },
+      }),
+    });
+  } catch (e) {
+    const err = e as Error & { cause?: { code?: string; message?: string } };
+    const causeMsg = err.cause?.code || err.cause?.message || "";
+    throw new Error(
+      `Gemini fetch failed${causeMsg ? `: ${causeMsg}` : ""} (${err.message})`,
+    );
+  }
 
   if (!res.ok) {
     const text = await res.text();

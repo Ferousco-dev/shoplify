@@ -37,6 +37,10 @@ export type ProductDetail = {
   failure_reason: string | null;
   shopify_product_id: string | null;
   shopify_handle: string | null;
+  job_item_id: string | null;
+  // Resolved server-side via a join on job_items — lets the UI navigate
+  // back to the parent job's review flow after publishing.
+  job_id: string | null;
   created_at: string;
   updated_at: string;
   assets: ProductAsset[];
@@ -87,8 +91,28 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (!productRes.data)
     return NextResponse.json({ error: "Product not found" }, { status: 404 });
 
+  const raw = productRes.data as Record<string, unknown> & {
+    job_item_id?: string | null;
+  };
+
+  // Resolve the parent job_id via a second query. We avoid Supabase's
+  // PostgREST embed (`job_items(job_id)`) here because products and
+  // job_items have multiple FK relationships between them — the embed
+  // can't disambiguate and errors with "more than one relationship was
+  // found".
+  let job_id: string | null = null;
+  if (raw.job_item_id) {
+    const { data: ji } = await supabaseAdmin
+      .from("job_items")
+      .select("job_id")
+      .eq("id", raw.job_item_id)
+      .maybeSingle();
+    job_id = (ji?.job_id as string | undefined) ?? null;
+  }
+
   const detail: ProductDetail = {
-    ...(productRes.data as Omit<ProductDetail, "assets" | "recent_generations">),
+    ...(raw as Omit<ProductDetail, "assets" | "recent_generations" | "job_id">),
+    job_id,
     assets: (assetsRes.data ?? []) as ProductAsset[],
     recent_generations: (gensRes.data ?? []) as GenerationEntry[],
   };

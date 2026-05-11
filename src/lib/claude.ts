@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import JSON5 from "json5";
 import { getSession } from "@/lib/session";
 import { geminiText } from "@/lib/gemini";
 
@@ -12,6 +13,8 @@ type ClaudeOpts = {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  /** When true, request JSON-only output from providers that support it. */
+  jsonMode?: boolean;
 };
 
 type Provider = "anthropic" | "mistral" | "groq" | "gemini";
@@ -100,6 +103,9 @@ async function tryMistral(opts: ClaudeOpts): Promise<string> {
         ],
         max_tokens: opts.maxTokens ?? 4096,
         temperature: opts.temperature ?? 0.6,
+        ...(opts.jsonMode
+          ? { response_format: { type: "json_object" } }
+          : {}),
       }),
       signal: controller.signal,
     });
@@ -136,6 +142,9 @@ async function tryGroq(opts: ClaudeOpts): Promise<string> {
         ],
         max_tokens: opts.maxTokens ?? 4096,
         temperature: opts.temperature ?? 0.6,
+        ...(opts.jsonMode
+          ? { response_format: { type: "json_object" } }
+          : {}),
       }),
       signal: controller.signal,
     });
@@ -226,6 +235,9 @@ export async function claudeJson<T = unknown>(opts: ClaudeOpts): Promise<T> {
     ...opts,
     maxTokens,
     temperature: opts.temperature ?? 0.3,
+    // Force JSON mode on providers that support it (Mistral, Groq) — drops
+    // the rate of markdown-fence-wrapped or partially-invalid output to ~0.
+    jsonMode: true,
   });
   return parseJsonLoose<T>(text);
 }
@@ -266,18 +278,11 @@ function parseJsonLoose<T>(text: string): T {
   }
 
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(t);
-  } catch {
-    // Truncation repair: close dangling string + match unbalanced braces.
-    const repaired = repairTruncatedJson(t);
-    try {
-      parsed = JSON.parse(repaired);
-    } catch (e2) {
-      throw new Error(
-        `AI returned invalid JSON (${text.length} chars): ${(e2 as Error).message}\n\nLast 400 chars:\n${text.slice(-400)}`,
-      );
-    }
+  parsed = tryParseChain(t);
+  if (parsed === PARSE_FAIL) {
+    throw new Error(
+      `AI returned invalid JSON (${text.length} chars). Last 400 chars:\n${text.slice(-400)}`,
+    );
   }
 
   // Some models wrap the schema in an outer key. Unwrap if there's exactly one
@@ -320,6 +325,113 @@ function parseJsonLoose<T>(text: string): T {
  * value, dangling colon, half-closed array. The cost is dropping the last
  * field — but a corrupt last field would have crashed JSON.parse anyway.
  */
+// Sentinel for the recovery chain to signal "all parses failed".
+const PARSE_FAIL = Symbol("PARSE_FAIL");
+
+/**
+ * Run a cascade of progressively-more-lenient JSON parses against the LLM
+ * output. The cascade is:
+ *   1. Strict JSON.parse — fast path, matches well-behaved models.
+ *   2. Escape raw control chars inside string literals.
+ *   3. Truncation repair (trim to last safe comma + balance braces).
+ *   4. Both repairs combined.
+ *   5. Strip trailing commas (common LLM JSON tic).
+ *   6. JSON5.parse — handles single-quoted keys/values, unquoted keys,
+ *      trailing commas, comments, etc. — the most forgiving of all.
+ *   7. JSON5 + truncation repair + control-char escape combined.
+ *
+ * Returns the parsed value, or the PARSE_FAIL sentinel if every layer rejects.
+ */
+function tryParseChain(t: string): unknown {
+  // 1. Strict
+  try { return JSON.parse(t); } catch {}
+  // 2. Control-char escape
+  try { return JSON.parse(escapeControlCharsInJsonStrings(t)); } catch {}
+  // 3. Truncation repair
+  let trunc: string;
+  try {
+    trunc = repairTruncatedJson(t);
+    return JSON.parse(trunc);
+  } catch {
+    trunc = repairTruncatedJson(t);
+  }
+  // 4. Combined repairs
+  try {
+    return JSON.parse(escapeControlCharsInJsonStrings(trunc));
+  } catch {}
+  // 5. Strip trailing commas
+  const noTrailing = (s: string) => s.replace(/,(\s*[}\]])/g, "$1");
+  try { return JSON.parse(noTrailing(t)); } catch {}
+  try { return JSON.parse(noTrailing(escapeControlCharsInJsonStrings(t))); } catch {}
+  // 6. JSON5 (handles single quotes, unquoted keys, trailing commas, comments)
+  try { return JSON5.parse(t); } catch {}
+  try { return JSON5.parse(escapeControlCharsInJsonStrings(t)); } catch {}
+  // 7. JSON5 + truncation repair
+  try { return JSON5.parse(trunc); } catch {}
+  try { return JSON5.parse(escapeControlCharsInJsonStrings(trunc)); } catch {}
+  return PARSE_FAIL;
+}
+
+/**
+ * Walk a JSON string and escape raw control chars (newline, tab, CR, BS, FF,
+ * vertical tab) that appear *inside* string literals. Fallback LLM providers
+ * frequently emit these unescaped — strict JSON.parse rejects them but
+ * substituting the proper \\n / \\t / etc. recovers cleanly.
+ *
+ * Outside string literals the source is left untouched, so this is safe to
+ * run unconditionally before parsing.
+ */
+function escapeControlCharsInJsonStrings(src: string): string {
+  let out = "";
+  let inStr = false;
+  let escape = false;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (escape) {
+      out += c;
+      escape = false;
+      continue;
+    }
+    if (c === "\\") {
+      out += c;
+      escape = true;
+      continue;
+    }
+    if (c === '"') {
+      inStr = !inStr;
+      out += c;
+      continue;
+    }
+    if (inStr) {
+      if (c === "\n") {
+        out += "\\n";
+        continue;
+      }
+      if (c === "\r") {
+        out += "\\r";
+        continue;
+      }
+      if (c === "\t") {
+        out += "\\t";
+        continue;
+      }
+      if (c === "\b") {
+        out += "\\b";
+        continue;
+      }
+      if (c === "\f") {
+        out += "\\f";
+        continue;
+      }
+      // Any other ASCII control char — strip it.
+      const code = c.charCodeAt(0);
+      if (code < 0x20) continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
 function repairTruncatedJson(src: string): string {
   // Walk through src tracking string state and bracket depth, recording the
   // index of every comma that occurs at the outermost-property level. The
