@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { requireStore } from "@/lib/session";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
@@ -58,22 +58,36 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     );
   }
 
-  // Fire-and-forget the worker. On Vercel each invocation is its own
-  // serverless function so this gets its own 300s budget.
+  // Dispatch the worker after the response is sent. `after()` keeps the
+  // serverless runtime alive past the response so the outgoing fetch
+  // actually flushes — a bare `void fetch(...)` gets cancelled when the
+  // function returns and the worker never starts.
   const origin = new URL(req.url).origin;
-  void fetch(`${origin}/api/products/${id}/generate/run`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-runner-secret": secret,
-    },
-    body: JSON.stringify({
-      shopDomain: auth.shopDomain,
-      accessToken: auth.accessToken,
-      storeId: auth.storeId,
-    }),
-  }).catch((e) => {
-    console.error(`[generate] failed to dispatch ${id}:`, e);
+  after(async () => {
+    try {
+      await fetch(`${origin}/api/products/${id}/generate/run`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-runner-secret": secret,
+        },
+        body: JSON.stringify({
+          shopDomain: auth.shopDomain,
+          accessToken: auth.accessToken,
+          storeId: auth.storeId,
+        }),
+      });
+    } catch (e) {
+      console.error(`[generate] failed to dispatch ${id}:`, e);
+      await supabaseAdmin
+        .from("products")
+        .update({
+          status: "failed_copy",
+          failure_reason: `Worker dispatch failed: ${(e as Error).message}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+    }
   });
 
   return NextResponse.json({ ok: true, productId: id, started: true });
