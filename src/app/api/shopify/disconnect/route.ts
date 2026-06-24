@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
+import { clearShopifyToken } from "@/lib/shopify-token";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST() {
@@ -8,6 +9,7 @@ export async function POST() {
   s.destroy();
 
   if (domain) {
+    clearShopifyToken(domain);
     await supabaseAdmin
       .from("stores")
       .update({ is_active: false, updated_at: new Date().toISOString() })

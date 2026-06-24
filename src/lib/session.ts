@@ -1,10 +1,10 @@
 import { getIronSession, type SessionOptions } from "iron-session";
 import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getShopifyToken } from "@/lib/shopify-token";
 
 export type ShopifySession = {
   shopDomain?: string;
-  accessToken?: string;
   shopName?: string;
   anthropicApiKey?: string;
   geminiApiKey?: string;
@@ -45,10 +45,11 @@ export async function getSession() {
 
 export async function requireShopify() {
   const s = await getSession();
-  if (!s.shopDomain || !s.accessToken) {
+  if (!s.shopDomain) {
     throw new Error("Not connected to Shopify");
   }
-  return { shopDomain: s.shopDomain, accessToken: s.accessToken };
+  const accessToken = await getShopifyToken(s.shopDomain);
+  return { shopDomain: s.shopDomain, accessToken };
 }
 
 /**
@@ -71,7 +72,7 @@ export async function requireStore(): Promise<
   | { error: string; status: 401 | 403 }
 > {
   const s = await getSession();
-  if (!s.shopDomain || !s.accessToken) {
+  if (!s.shopDomain) {
     return { error: "Not connected to Shopify", status: 401 };
   }
   const { data: store, error } = await supabaseAdmin
@@ -85,9 +86,15 @@ export async function requireStore(): Promise<
   if (!store.is_active) {
     return { error: "Store is inactive", status: 403 };
   }
+  let accessToken: string;
+  try {
+    accessToken = await getShopifyToken(s.shopDomain);
+  } catch (e) {
+    return { error: `Could not obtain Shopify token: ${(e as Error).message}`, status: 403 };
+  }
   return {
     shopDomain: s.shopDomain,
-    accessToken: s.accessToken,
+    accessToken,
     storeId: store.id as string,
   };
 }

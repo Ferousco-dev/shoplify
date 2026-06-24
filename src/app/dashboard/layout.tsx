@@ -8,7 +8,7 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const s = await getSession();
-  if (!s.shopDomain || !s.accessToken) {
+  if (!s.shopDomain) {
     redirect("/");
   }
   return <AppShell>{children}</AppShell>;

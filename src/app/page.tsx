@@ -8,7 +8,7 @@ import ConnectForm from "@/components/ConnectForm";
 
 export default async function Home() {
   const s = await getSession();
-  if (s.shopDomain && s.accessToken) {
+  if (s.shopDomain) {
     redirect("/dashboard");
   }
 
@@ -58,37 +58,12 @@ export default async function Home() {
               Connect your Shopify store
             </h2>
             <p className="text-base text-text-muted leading-relaxed max-w-md">
-              One-time setup. Create a custom app in your Shopify admin and paste the
-              access token. Your credentials live in an encrypted httpOnly cookie on
-              this device only — never on a server.
+              One-time setup. Enter your store domain and we handle the rest —
+              authentication happens automatically in the background, no tokens to copy.
             </p>
 
             <div className="rounded-3xl border border-border/40 bg-warm-white shadow-card p-lg sm:p-xl">
               <ConnectForm />
-
-              <details className="mt-lg text-sm">
-                <summary className="cursor-pointer font-ui-label text-ui-label text-text-primary">
-                  How to get a token
-                </summary>
-                <ol className="mt-sm list-decimal space-y-1 pl-5 text-text-muted">
-                  <li>
-                    In your Shopify admin: <strong>Settings → Apps and sales channels → Develop apps</strong>.
-                  </li>
-                  <li>
-                    Click <strong>Create an app</strong> → name it &quot;Alivio Studio&quot;.
-                  </li>
-                  <li>
-                    Under <strong>Admin API integration</strong> grant:{" "}
-                    <code className="font-mono-data text-xs">read_products</code>,{" "}
-                    <code className="font-mono-data text-xs">write_products</code>,{" "}
-                    <code className="font-mono-data text-xs">write_files</code>,{" "}
-                    <code className="font-mono-data text-xs">read_files</code>.
-                  </li>
-                  <li>
-                    Install the app, then copy the <strong>Admin API access token</strong>.
-                  </li>
-                </ol>
-              </details>
             </div>
           </div>
 

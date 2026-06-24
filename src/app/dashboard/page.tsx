@@ -4,7 +4,7 @@ import DashboardHome from "@/components/DashboardHome";
 
 export default async function DashboardPage() {
   const s = await getSession();
-  if (!s.shopDomain || !s.accessToken) {
+  if (!s.shopDomain) {
     redirect("/");
   }
   return <DashboardHome shopName={s.shopName || s.shopDomain || ""} shopDomain={s.shopDomain!} />;

@@ -14,7 +14,6 @@ export default function ConnectForm({
   const router = useRouter();
   const qc = useQueryClient();
   const [shopDomain, setShopDomain] = useState("");
-  const [accessToken, setAccessToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -26,7 +25,7 @@ export default function ConnectForm({
       const res = await fetch("/api/shopify/connect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shopDomain, accessToken }),
+        body: JSON.stringify({ shopDomain }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -53,19 +52,6 @@ export default function ConnectForm({
           value={shopDomain}
           onChange={(e) => setShopDomain(e.target.value)}
           autoComplete="off"
-          required
-        />
-      </div>
-      <div className="space-y-xs">
-        <Label htmlFor="access-token">Admin API access token</Label>
-        <Input
-          id="access-token"
-          className="font-mono-data"
-          placeholder="shpat_********************"
-          value={accessToken}
-          onChange={(e) => setAccessToken(e.target.value)}
-          autoComplete="off"
-          type="password"
           required
         />
       </div>
