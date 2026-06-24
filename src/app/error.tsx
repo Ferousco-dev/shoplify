@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
+import { AlivioMark } from "@/components/brand/alivio-mark";
 
 export default function GlobalError({
   error,
@@ -14,7 +16,11 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-md">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background p-md gap-lg">
+      <Link href="/" className="flex items-center gap-sm mb-sm">
+        <AlivioMark className="w-10 h-10" />
+        <span className="font-section-heading text-lg text-primary font-semibold">Alivio Plus</span>
+      </Link>
       <div className="max-w-xl w-full rounded-3xl border border-error/30 bg-error-container/40 p-lg">
         <h2 className="font-section-heading text-xl text-on-error-container mb-xs">
           Something went wrong

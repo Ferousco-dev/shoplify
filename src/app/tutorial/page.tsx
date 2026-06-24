@@ -1,16 +1,22 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
+import { AlivioMark } from "@/components/brand/alivio-mark";
 
 export default function TutorialPage() {
   return (
     <div className="min-h-screen">
       <header className="border-b border-border bg-surface-container-lowest">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-2 text-sm text-text-muted hover:text-text-primary">
+          <Link href="/" className="flex items-center gap-2 text-sm text-text-muted hover:text-text-primary transition-colors">
             <ChevronLeft size={16} />
             Back
           </Link>
-          <h1 className="font-section-heading text-xl">Tutorial Videos</h1>
+          <Link href="/" className="flex items-center gap-sm">
+            <AlivioMark className="w-8 h-8" />
+            <span className="font-section-heading text-lg text-primary font-semibold leading-none hidden sm:block">
+              Alivio Plus
+            </span>
+          </Link>
           <div className="w-24" />
         </div>
       </header>

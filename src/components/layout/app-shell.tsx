@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/cn";
 import { Icon } from "@/components/ui/icon";
 import { OrganicBlob } from "@/components/brand/organic-blob";
+import { AlivioMark } from "@/components/brand/alivio-mark";
 
 type NavItem = {
   href: string;
@@ -249,14 +250,17 @@ function SideNav({
       )}
     >
       <div className="mb-xl flex items-start justify-between gap-sm">
-        <div>
-          <h1 className="font-section-heading text-section-heading text-primary font-semibold leading-none">
-            Alivio Plus
-          </h1>
-          <p className="font-ui-label text-ui-label text-text-muted mt-xs">
-            Gently automating your shop
-          </p>
-        </div>
+        <Link href="/dashboard" className="flex items-center gap-sm group">
+          <AlivioMark className="w-10 h-10 flex-shrink-0 group-hover:scale-105 transition-transform duration-150" />
+          <div className="leading-none">
+            <h1 className="font-section-heading text-lg text-primary font-semibold leading-none">
+              Alivio Plus
+            </h1>
+            <p className="font-spoonie-italic text-xs text-text-muted italic mt-0.5">
+              By/For/With Spoonies
+            </p>
+          </div>
+        </Link>
         {/* Close button — mobile only. Desktop sidebar is always pinned so
             no close affordance is needed. */}
         <button
