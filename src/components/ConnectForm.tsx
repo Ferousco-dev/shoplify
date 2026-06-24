@@ -43,7 +43,7 @@ export default function ConnectForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-md space-y-md">
+    <form onSubmit={onSubmit} className="space-y-sm">
       <div className="space-y-xs">
         <Label htmlFor="shop-domain">Store domain</Label>
         <Input
@@ -52,16 +52,36 @@ export default function ConnectForm({
           value={shopDomain}
           onChange={(e) => setShopDomain(e.target.value)}
           autoComplete="off"
+          autoCapitalize="none"
+          spellCheck={false}
+          inputMode="url"
           required
+          className="h-12 text-base"
         />
       </div>
+
       {error && (
-        <div className="rounded-lg border border-error/30 bg-error-container px-md py-sm text-sm text-on-error-container">
+        <div className="rounded-xl border border-error/30 bg-error-container/60 px-md py-sm text-sm text-on-error-container leading-snug">
           {error}
         </div>
       )}
-      <Button type="submit" size="lg" disabled={busy} className="w-full">
-        {busy ? "Connecting…" : "Connect Shopify"}
+
+      <Button
+        type="submit"
+        size="lg"
+        disabled={busy}
+        className="w-full mt-xs"
+      >
+        {busy ? (
+          <>
+            <span className="material-symbols-outlined animate-spin" style={{ fontSize: 18 }}>
+              progress_activity
+            </span>
+            Connecting…
+          </>
+        ) : (
+          "Connect Shopify"
+        )}
       </Button>
     </form>
   );
