@@ -12,7 +12,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "shopDomain is required" }, { status: 400 });
   }
 
+  // Handle full admin URLs: https://admin.shopify.com/store/my-store → my-store
   let shopDomain = rawDomain.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  const adminMatch = shopDomain.match(/^admin\.shopify\.com\/store\/([^/]+)/);
+  if (adminMatch) shopDomain = adminMatch[1];
+  // Strip any remaining path
+  shopDomain = shopDomain.split("/")[0];
+  // Auto-append .myshopify.com if bare store name given
   if (!shopDomain.includes(".")) shopDomain = `${shopDomain}.myshopify.com`;
 
   try {

@@ -48,13 +48,12 @@ export default function ConnectForm({
         <Label htmlFor="shop-domain">Store domain</Label>
         <Input
           id="shop-domain"
-          placeholder="your-store.myshopify.com"
+          placeholder="alivio-plus-2.myshopify.com"
           value={shopDomain}
           onChange={(e) => setShopDomain(e.target.value)}
           autoComplete="off"
           autoCapitalize="none"
           spellCheck={false}
-          inputMode="url"
           required
           className="h-12 text-base"
         />
