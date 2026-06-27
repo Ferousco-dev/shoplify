@@ -23,6 +23,7 @@ const PRIMARY_NAV: NavItem[] = [
   { href: "/dashboard/inventory", label: "Inventory", icon: "inventory" },
   { href: "/dashboard/automation", label: "Automation", icon: "bolt" },
   { href: "/dashboard/stores", label: "Stores", icon: "storefront" },
+  { href: "/dashboard/integrations", label: "Integrations", icon: "hub" },
 ];
 
 const FOOTER_NAV: NavItem[] = [
