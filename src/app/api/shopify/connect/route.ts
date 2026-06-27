@@ -39,6 +39,9 @@ export async function POST(req: Request) {
           name: shop.name,
           shop_domain: finalDomain,
           is_active: true,
+          // Column is NOT NULL — store the current token; getShopifyToken()
+          // always fetches fresh ones via client credentials at runtime.
+          access_token_encrypted: accessToken,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "shop_domain" },
