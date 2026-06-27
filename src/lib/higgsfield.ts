@@ -1,17 +1,19 @@
 /**
  * Higgsfield AI image generation client.
  *
- * Higgsfield generates cinematic, consistent product images. The key pattern
- * for product consistency: generate the front/hero shot first, then pass its
- * output URL as the first reference image for all remaining slots — Higgsfield
- * will keep the product appearance identical across every shot.
+ * Uses the platform.higgsfield.ai API (v2).
+ * Auth: single header  Authorization: Key {apiKey}:{secret}
+ * Submit: POST https://platform.higgsfield.ai/{model_id}
+ * Status: GET  https://platform.higgsfield.ai/requests/{id}/status
  *
  * Credentials: HIGGSFIELD_API_KEY + HIGGSFIELD_SECRET from .env
- * Docs: https://cloud.higgsfield.ai/api-keys
+ * Docs: https://docs.higgsfield.ai
  */
 
-const BASE = "https://cloud.higgsfield.ai";
-const POLL_INTERVAL_MS = 3_000;
+const BASE = "https://platform.higgsfield.ai";
+// Flagship text-to-image model on Higgsfield platform
+const IMAGE_MODEL = "higgsfield-ai/soul/standard";
+const POLL_INTERVAL_MS = 4_000;
 const POLL_TIMEOUT_MS = 120_000;
 
 export type HiggsfieldImageResult = {
@@ -33,21 +35,15 @@ function getCredentials(overrides?: { apiKey?: string; secret?: string }): { api
 
 type SubmitResponse = {
   request_id?: string;
-  id?: string;
   status?: string;
   error?: string;
-  message?: string;
 };
 
 type StatusResponse = {
-  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | string;
-  output?: {
-    media_url?: string;
-    url?: string;
-  };
-  media_url?: string;
+  status: "queued" | "in_progress" | "completed" | "failed" | "nsfw" | string;
+  images?: Array<{ url: string }>;
+  video?: { url: string };
   error?: string;
-  message?: string;
 };
 
 /**
@@ -55,8 +51,7 @@ type StatusResponse = {
  *
  * @param prompt  The full text prompt for this shot.
  * @param referenceImageUrls  URLs of reference images (supplier photos OR the
- *   previously-generated hero shot). Pass hero shot URL first for maximum
- *   product consistency.
+ *   previously-generated hero shot).
  */
 export async function higgsfieldImage(opts: {
   prompt: string;
@@ -67,13 +62,10 @@ export async function higgsfieldImage(opts: {
 }): Promise<HiggsfieldImageResult> {
   const { apiKey, secret } = getCredentials({ apiKey: opts.apiKey, secret: opts.secret });
 
-  // Build the request body. Higgsfield accepts image_urls for reference-based
-  // generation which is what gives us cross-shot product consistency.
   const reqBody: Record<string, unknown> = {
     prompt: opts.prompt,
-    enhance_prompt: false,
-    check_nsfw: false,
-    quality: "high",
+    aspect_ratio: "1:1",
+    resolution: "720p",
   };
 
   if (opts.referenceImageUrls?.length) {
@@ -86,20 +78,17 @@ export async function higgsfieldImage(opts: {
   // Submit generation request
   let submitRes: Response;
   try {
-    submitRes = await fetch(`${BASE}/ai-model-api/v1/flux-dev-image`, {
+    submitRes = await fetch(`${BASE}/${IMAGE_MODEL}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-        "x-api-secret": secret,
+        Authorization: `Key ${apiKey}:${secret}`,
       },
       body: JSON.stringify(reqBody),
     });
   } catch (e) {
     const err = e as Error & { cause?: { code?: string } };
-    throw new Error(
-      `Higgsfield fetch failed: ${err.cause?.code ?? err.message}`,
-    );
+    throw new Error(`Higgsfield fetch failed: ${err.cause?.code ?? err.message}`);
   }
 
   if (!submitRes.ok) {
@@ -108,16 +97,16 @@ export async function higgsfieldImage(opts: {
   }
 
   const submitted = (await submitRes.json()) as SubmitResponse;
-  if (submitted.error || submitted.message?.toLowerCase().includes("error")) {
-    throw new Error(`Higgsfield error: ${submitted.error ?? submitted.message}`);
+  if (submitted.error) {
+    throw new Error(`Higgsfield error: ${submitted.error}`);
   }
 
-  const requestId = submitted.request_id ?? submitted.id;
+  const requestId = submitted.request_id;
   if (!requestId) {
     throw new Error("Higgsfield returned no request_id");
   }
 
-  // Poll until COMPLETED or FAILED
+  // Poll until completed or failed
   const mediaUrl = await pollUntilDone(requestId, apiKey, secret);
 
   // Download the image bytes
@@ -144,19 +133,17 @@ async function pollUntilDone(
 
     let pollRes: Response;
     try {
-      pollRes = await fetch(`${BASE}/v2/requests/status/${requestId}`, {
+      pollRes = await fetch(`${BASE}/requests/${requestId}/status`, {
         headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "x-api-secret": secret,
+          Authorization: `Key ${apiKey}:${secret}`,
         },
       });
-    } catch (e) {
+    } catch {
       // transient network error — keep polling
       continue;
     }
 
     if (!pollRes.ok) {
-      // 4xx means the request is gone or invalid — don't keep polling
       if (pollRes.status >= 400 && pollRes.status < 500) {
         throw new Error(`Higgsfield poll ${pollRes.status} for ${requestId}`);
       }
@@ -165,22 +152,19 @@ async function pollUntilDone(
 
     const status = (await pollRes.json()) as StatusResponse;
 
-    if (status.status === "COMPLETED") {
-      const url =
-        status.output?.media_url ??
-        status.output?.url ??
-        status.media_url;
-      if (!url) throw new Error("Higgsfield COMPLETED but no media_url");
+    if (status.status === "completed") {
+      const url = status.images?.[0]?.url ?? status.video?.url;
+      if (!url) throw new Error("Higgsfield completed but no image URL in response");
       return url;
     }
 
-    if (status.status === "FAILED") {
+    if (status.status === "failed" || status.status === "nsfw") {
       throw new Error(
-        `Higgsfield generation failed: ${status.error ?? status.message ?? "unknown"}`,
+        `Higgsfield generation ${status.status}: ${status.error ?? "unknown"}`,
       );
     }
 
-    // PENDING / PROCESSING — keep waiting
+    // queued / in_progress — keep waiting
   }
 
   throw new Error(`Higgsfield timed out after ${POLL_TIMEOUT_MS / 1000}s for ${requestId}`);
