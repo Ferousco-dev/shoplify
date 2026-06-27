@@ -227,9 +227,9 @@ function SideNav({
           : "-translate-x-full md:translate-x-0",
       )}
     >
-      <div className="mb-xl flex items-start justify-between gap-sm -mx-lg -mt-lg px-lg pt-lg pb-md bg-primary rounded-b-2xl">
+      <div className="mb-xl flex items-start justify-between gap-sm -mx-lg -mt-lg px-lg pt-lg pb-md bg-primary">
         <Link href="/dashboard" className="group block -mx-xs -mt-xs">
-          <AlivioMark className="h-20 w-auto max-w-[200px] group-hover:scale-105 transition-transform duration-150" />
+          <AlivioMark className="h-28 w-auto max-w-[220px] group-hover:scale-105 transition-transform duration-150" />
         </Link>
         {/* Close button — mobile only. Desktop sidebar is always pinned so
             no close affordance is needed. */}
