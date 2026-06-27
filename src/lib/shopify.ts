@@ -132,6 +132,7 @@ export type ProductInput = {
   handle?: string;
   vendor?: string;
   productType?: string;
+  templateSuffix?: string;
   tags?: string[];
   status?: "DRAFT" | "ACTIVE";
   seo?: { title?: string; description?: string };

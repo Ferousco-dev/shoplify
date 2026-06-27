@@ -38,6 +38,7 @@ export async function POST(req: Request) {
     handle: body.draft.handle,
     vendor: body.vendor || "Alivio Plus Co",
     productType: body.productType,
+    templateSuffix: "thumbnail",
     tags: body.draft.tags,
     status: "DRAFT",
     seo: body.draft.seo,

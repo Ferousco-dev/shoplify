@@ -5,6 +5,7 @@ import { claudeJson } from "@/lib/claude";
 import { rankKeywords, generateSeoRecommendations } from "@/lib/serp";
 import { IMAGE_SLOTS, slotByShortKey, type ImageSlot } from "@/lib/slots";
 import { fetchReferenceImage, geminiImage } from "@/lib/gemini";
+import { higgsfieldImage, higgsfieldConfigured } from "@/lib/higgsfield";
 import { stageUpload, uploadBytesToStaged } from "@/lib/shopify";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
@@ -331,6 +332,9 @@ export async function generateImageForSlot(opts: {
   alt?: string;
   referenceImages: string[];
   lifestylePrompt?: string;
+  /** URL of the already-uploaded front/hero shot — prepended to reference
+   *  images so the same product appearance is used across all 14 shots. */
+  heroImageUrl?: string;
 }): Promise<GeneratedImage> {
   let rendered: string;
   if (opts.lifestylePrompt) {
@@ -343,29 +347,48 @@ export async function generateImageForSlot(opts: {
     });
   }
 
-  const refs: Array<{ bytes: Uint8Array; mimeType: string }> = [];
-  for (const url of opts.referenceImages.slice(0, 3)) {
-    try {
-      refs.push(await fetchReferenceImage(url));
-    } catch {
-      // skip unreachable reference
+  // Hero shot URL goes first — strongest visual anchor for product consistency.
+  const allRefUrls = [
+    ...(opts.heroImageUrl ? [opts.heroImageUrl] : []),
+    ...opts.referenceImages,
+  ];
+
+  let imgBytes: Uint8Array;
+  let imgMime: string;
+
+  if (higgsfieldConfigured()) {
+    const result = await higgsfieldImage({
+      prompt: rendered,
+      referenceImageUrls: allRefUrls.slice(0, 4),
+    });
+    imgBytes = result.bytes;
+    imgMime = result.mimeType;
+  } else {
+    const refs: Array<{ bytes: Uint8Array; mimeType: string }> = [];
+    for (const url of allRefUrls.slice(0, 3)) {
+      try {
+        refs.push(await fetchReferenceImage(url));
+      } catch {
+        // skip unreachable reference
+      }
     }
+    const img = await geminiImage({ prompt: rendered, referenceImages: refs });
+    imgBytes = img.bytes;
+    imgMime = img.mimeType;
   }
 
-  const img = await geminiImage({ prompt: rendered, referenceImages: refs });
-
   const filename =
-    `${opts.promptCtx.title || "product"}-${opts.slot.shortKey}.${mimeExt(img.mimeType)}`
+    `${opts.promptCtx.title || "product"}-${opts.slot.shortKey}.${mimeExt(imgMime)}`
       .toLowerCase()
       .replace(/[^a-z0-9.-]+/g, "-");
   const target = await stageUpload(opts.creds, {
     filename,
-    mimeType: img.mimeType,
-    bytesSize: img.bytes.length,
+    mimeType: imgMime,
+    bytesSize: imgBytes.length,
   });
-  const resourceUrl = await uploadBytesToStaged(target, img.bytes, img.mimeType);
+  const resourceUrl = await uploadBytesToStaged(target, imgBytes, imgMime);
 
-  const sha = createHash("sha256").update(Buffer.from(img.bytes)).digest("hex");
+  const sha = createHash("sha256").update(Buffer.from(imgBytes)).digest("hex");
 
   return {
     shortKey: opts.slot.shortKey,
@@ -373,8 +396,8 @@ export async function generateImageForSlot(opts: {
     alt:
       opts.alt ?? opts.slot.altPattern.replace("{{title}}", opts.promptCtx.title || ""),
     resourceUrl,
-    mimeType: img.mimeType,
-    bytes: img.bytes,
+    mimeType: imgMime,
+    bytes: imgBytes,
     sha256: sha,
   };
 }
@@ -898,19 +921,10 @@ export async function processProductGenerate(opts: {
     })
     .eq("id", productId);
 
-  const slots = IMAGE_SLOTS;
-  const errors: string[] = [];
-  let cursor = 0;
-  // Lowered from 3 → 2: Gemini's free-tier limit on gemini-2.5-flash-image
-  // is tight enough that bursts cause socket-level "fetch failed" tears.
-  // Two-at-a-time keeps throughput high without tripping the limit.
-  const CONCURRENCY = 2;
+  const imageModel = higgsfieldConfigured() ? "higgsfield" : "gemini-2.5-flash-image";
 
-  async function runSlotWithRetry(slot: ImageSlot) {
+  async function runSlotWithRetry(slot: ImageSlot, heroImageUrl?: string) {
     let lastErr: Error | undefined;
-    // One retry on transient failure. Most Gemini quirks (rate-limit drop,
-    // empty image part, socket reset) recover on the second attempt after a
-    // short jittered backoff.
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         return await generateImageForSlot({
@@ -919,6 +933,7 @@ export async function processProductGenerate(opts: {
           promptCtx: text.promptCtx,
           referenceImages: text.referenceImages,
           lifestylePrompt: text.lifestylePrompts[slot.shortKey],
+          heroImageUrl,
         });
       } catch (e) {
         lastErr = e as Error;
@@ -930,34 +945,67 @@ export async function processProductGenerate(opts: {
     throw lastErr;
   }
 
+  async function saveAsset(img: GeneratedImage) {
+    await supabaseAdmin.from("product_assets").upsert(
+      {
+        product_id: productId,
+        kind: "generated",
+        slot: img.shortKey,
+        storage_key: img.resourceUrl,
+        public_url: img.resourceUrl,
+        sha256: img.sha256,
+        mime_type: img.mimeType,
+        bytes: img.bytes.length,
+        meta: { alt: img.alt, label: img.label },
+      },
+      { onConflict: "product_id,slot,sha256" },
+    );
+    await supabaseAdmin.from("generations").insert({
+      product_id: productId,
+      kind: "image",
+      slot: img.shortKey,
+      model: imageModel,
+      status: "completed",
+    });
+  }
+
+  const errors: string[] = [];
+
+  // ── Step 1: generate the front/hero shot first ───────────────────────────
+  // All subsequent shots reference this image so the product looks identical
+  // across every angle and scene.
+  const frontSlot = IMAGE_SLOTS.find((s) => s.shortKey === "front") ?? IMAGE_SLOTS[0];
+  let heroImageUrl: string | undefined;
+  try {
+    const heroImg = await runSlotWithRetry(frontSlot);
+    await saveAsset(heroImg);
+    heroImageUrl = heroImg.resourceUrl;
+  } catch (e) {
+    const msg = (e as Error).message;
+    errors.push(`${frontSlot.shortKey}: ${msg}`);
+    await supabaseAdmin.from("generations").insert({
+      product_id: productId,
+      kind: "image",
+      slot: frontSlot.shortKey,
+      model: imageModel,
+      status: "failed",
+      error: msg,
+    });
+  }
+
+  // ── Step 2: remaining slots with bounded concurrency ────────────────────
+  const remainingSlots = IMAGE_SLOTS.filter((s) => s.shortKey !== frontSlot.shortKey);
+  let cursor = 0;
+  const CONCURRENCY = 2;
+
   async function worker() {
     while (true) {
       const idx = cursor++;
-      if (idx >= slots.length) return;
-      const slot = slots[idx];
+      if (idx >= remainingSlots.length) return;
+      const slot = remainingSlots[idx];
       try {
-        const img = await runSlotWithRetry(slot);
-        await supabaseAdmin.from("product_assets").upsert(
-          {
-            product_id: productId,
-            kind: "generated",
-            slot: slot.shortKey,
-            storage_key: img.resourceUrl,
-            public_url: img.resourceUrl,
-            sha256: img.sha256,
-            mime_type: img.mimeType,
-            bytes: img.bytes.length,
-            meta: { alt: img.alt, label: img.label },
-          },
-          { onConflict: "product_id,slot,sha256" },
-        );
-        await supabaseAdmin.from("generations").insert({
-          product_id: productId,
-          kind: "image",
-          slot: slot.shortKey,
-          model: "gemini-2.5-flash-image",
-          status: "completed",
-        });
+        const img = await runSlotWithRetry(slot, heroImageUrl);
+        await saveAsset(img);
       } catch (e) {
         const msg = (e as Error).message;
         errors.push(`${slot.shortKey}: ${msg}`);
@@ -965,7 +1013,7 @@ export async function processProductGenerate(opts: {
           product_id: productId,
           kind: "image",
           slot: slot.shortKey,
-          model: "gemini-2.5-flash-image",
+          model: imageModel,
           status: "failed",
           error: msg,
         });
@@ -974,7 +1022,7 @@ export async function processProductGenerate(opts: {
   }
   await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
-  const allFailed = errors.length === slots.length;
+  const allFailed = errors.length === IMAGE_SLOTS.length;
   await supabaseAdmin
     .from("products")
     .update({
