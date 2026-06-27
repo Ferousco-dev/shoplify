@@ -148,7 +148,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
        * `pt-safe` respects the iOS notch / Dynamic Island. `px-md` on
        * mobile drops to a comfortable 16px, expanding to 24px from md up.
        */}
-      <header className="fixed top-0 right-0 left-0 md:left-[288px] z-30 flex justify-between items-center gap-sm px-md md:px-lg py-md pt-safe bg-background/90 backdrop-blur-md border-b border-border/30">
+      <header className="fixed top-0 right-0 left-0 md:left-[288px] z-30 flex justify-between items-center gap-sm px-lg md:px-xl py-5 pt-safe bg-background/90 backdrop-blur-md border-b border-border/30 min-h-[72px]">
         <div className="flex items-center gap-sm min-w-0">
           {/* Hamburger — mobile only */}
           <button
@@ -159,17 +159,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
             onClick={() => setMobileNavOpen(true)}
             className="md:hidden -ml-2 p-2 rounded-full text-text-primary hover:bg-surface-variant/40 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
           >
-            <Icon name="menu" size={24} />
+            <Icon name="menu" size={26} />
           </button>
           {shopName ? (
-            <span className="inline-flex items-center gap-xs font-ui-label text-ui-label text-text-muted truncate">
-              <Icon name="storefront" size={16} className="text-primary" />
-              <span className="font-mono-data text-text-primary truncate">
+            <span className="inline-flex items-center gap-sm">
+              <Icon name="storefront" size={20} className="text-primary flex-shrink-0" />
+              <span className="font-semibold text-base text-text-primary truncate">
                 {shopName}
               </span>
             </span>
           ) : (
-            <span className="font-ui-label text-ui-label text-text-muted truncate">
+            <span className="font-semibold text-base text-text-primary truncate">
               Alivio Studio
             </span>
           )}
@@ -188,7 +188,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
        */}
       <main
         id="main-content"
-        className="md:ml-[288px] min-h-screen flex flex-col pt-[calc(64px+env(safe-area-inset-top))] sm:pt-[calc(72px+env(safe-area-inset-top))]"
+        className="md:ml-[288px] min-h-screen flex flex-col pt-[calc(72px+env(safe-area-inset-top))]"
       >
         {/* Content padding scales: 16px on small phones → 24px from sm →
             40px from xl. Bottom padding holds the home indicator + any
