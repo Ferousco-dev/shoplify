@@ -152,7 +152,7 @@ export default function ProductDetailPage({
   const { id } = use(params);
   const router = useRouter();
   const qc = useQueryClient();
-  const [logOpen, setLogOpen] = useState(true);
+  const [logOpen, setLogOpen] = useState(false);
   const [confirm, setConfirm] = useState<"delete" | null>(null);
 
   const productQuery = useQuery<ProductDetail>({

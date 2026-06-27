@@ -1,188 +1,134 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ExternalLink, Package } from "lucide-react";
+import { Icon } from "@/components/ui/icon";
 
-const publishedProducts = [
-  {
-    id: "1",
-    name: "Professional TENS Machine for Back & Muscle Pain Relief",
-    status: "published",
-    shopifyUrl: "https://example.myshopify.com/admin/products/123",
-  },
-  {
-    id: "2",
-    name: "Portable Heat Therapy Pad for Pain Relief & Relaxation",
-    status: "published",
-    shopifyUrl: "https://example.myshopify.com/admin/products/124",
-  },
-];
+type ImageItem = {
+  shortKey: string;
+  label: string;
+  alt: string;
+  resourceUrl: string;
+  previewDataUrl?: string;
+};
+
+type ProductDraft = {
+  id: string;
+  title: string;
+  handle: string;
+  images: ImageItem[];
+};
+
+function formatTime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m ${s}s`;
+}
 
 export default function PublishPage() {
-  return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: "#FCF6E8" }}>
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col items-center justify-center px-6 py-12">
-        {/* Animated Checkmark */}
-        <div
-          className="mb-12"
-          style={{
-            animation: "scaleIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)",
-          }}
-        >
-          <div
-            className="w-24 h-24 rounded-full flex items-center justify-center"
-            style={{
-              backgroundColor: "#8FAF8A",
-            }}
-          >
-            <CheckCircle2 size={60} style={{ color: "white" }} />
-          </div>
-        </div>
+  const [drafts, setDrafts] = useState<ProductDraft[]>([]);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-        {/* Success Message */}
-        <h1
-          className="text-4xl font-bold mb-4 text-center"
-          style={{
-            fontFamily: "'Playfair Display', serif",
-            color: "#2D2A25",
-          }}
-        >
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("generatedDrafts");
+      if (raw) setDrafts(JSON.parse(raw) as ProductDraft[]);
+      const start = sessionStorage.getItem("pipelineStartTime");
+      if (start) {
+        const elapsed = Math.round((Date.now() - parseInt(start, 10)) / 1000);
+        setElapsedSeconds(elapsed);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const totalImages = drafts.reduce((sum, d) => sum + d.images.length, 0);
+
+  const stats = [
+    { label: "Products Published", value: drafts.length > 0 ? String(drafts.length) : "—", icon: "inventory_2" },
+    { label: "Images Generated", value: totalImages > 0 ? String(totalImages) : "—", icon: "image" },
+    { label: "Processing Time", value: elapsedSeconds > 0 ? formatTime(elapsedSeconds) : "—", icon: "timer" },
+  ];
+
+  return (
+    <div className="flex flex-col items-center gap-xl max-w-2xl mx-auto py-xl">
+      {/* Success icon */}
+      <div className="w-20 h-20 rounded-full bg-badge-ready-bg flex items-center justify-center">
+        <Icon name="check_circle" size={48} filled className="text-success" />
+      </div>
+
+      <div className="text-center">
+        <h1 className="font-section-heading text-section-heading text-text-primary">
           All Set!
         </h1>
-        <p
-          className="text-lg text-center max-w-md mb-12"
-          style={{
-            color: "#7A7167",
-            fontFamily: "'DM Sans', sans-serif",
-          }}
-        >
+        <p className="font-ui-label text-base text-text-muted mt-xs max-w-sm mx-auto">
           Your products have been successfully generated and published to Shopify.
         </p>
+      </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-6 mb-16 w-full max-w-2xl">
-          {[
-            { label: "Products Published", value: "2" },
-            { label: "Images Generated", value: "6" },
-            { label: "Processing Time", value: "2m 34s" },
-          ].map((stat) => (
-            <div
-              key={stat.label}
-              className="p-6 rounded-2xl text-center"
-              style={{
-                backgroundColor: "#FDFAF4",
-                border: "1px solid #DDD4C0",
-              }}
-            >
-              <div
-                className="text-3xl font-bold mb-2"
-                style={{ color: "#8FAF8A" }}
-              >
-                {stat.value}
-              </div>
-              <div
-                style={{
-                  color: "#7A7167",
-                  fontSize: "0.875rem",
-                  fontFamily: "'DM Sans', sans-serif",
-                }}
-              >
-                {stat.label}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Published Products List */}
-        <div className="w-full max-w-2xl mb-16">
-          <h2
-            className="text-xl font-bold mb-6"
-            style={{
-              fontFamily: "'Playfair Display', serif",
-              color: "#2D2A25",
-            }}
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-md w-full">
+        {stats.map((stat) => (
+          <div
+            key={stat.label}
+            className="rounded-2xl border border-border/40 bg-warm-white shadow-sm p-md text-center"
           >
+            <Icon name={stat.icon} size={24} className="text-primary mx-auto mb-xs" />
+            <p className="font-section-heading text-2xl text-primary">{stat.value}</p>
+            <p className="font-ui-label text-ui-label text-text-muted mt-xs">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Published products list */}
+      {drafts.length > 0 && (
+        <div className="w-full">
+          <h2 className="font-section-heading text-xl text-text-primary mb-md">
             Published Products
           </h2>
-          <div className="space-y-3">
-            {publishedProducts.map((product) => (
-              <a
-                key={product.id}
-                href={product.shopifyUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-between p-4 rounded-lg transition-all hover:bg-opacity-75"
-                style={{
-                  backgroundColor: "#FDFAF4",
-                  border: "1px solid #DDD4C0",
-                  textDecoration: "none",
-                }}
+          <div className="flex flex-col gap-sm">
+            {drafts.map((d) => (
+              <div
+                key={d.id}
+                className="flex items-center gap-md p-md rounded-2xl border border-border/40 bg-warm-white shadow-sm"
               >
-                <div className="flex items-center gap-3">
-                  <Package size={20} style={{ color: "#8FAF8A" }} />
-                  <div>
-                    <p
-                      className="font-medium text-sm"
-                      style={{ color: "#2D2A25" }}
-                    >
-                      {product.name}
-                    </p>
-                    <p
-                      className="text-xs"
-                      style={{ color: "#7A7167" }}
-                    >
-                      Published • View in Shopify
-                    </p>
-                  </div>
+                <div className="w-10 h-10 rounded-xl bg-badge-ready-bg flex items-center justify-center flex-shrink-0">
+                  <Icon name="inventory_2" size={20} className="text-success" />
                 </div>
-                <ExternalLink size={16} style={{ color: "#A07848" }} />
-              </a>
+                <div className="flex-1 min-w-0">
+                  <p className="font-section-heading text-base text-text-primary truncate">
+                    {d.title}
+                  </p>
+                  <p className="font-ui-label text-ui-label text-text-muted">
+                    {d.images.length} image{d.images.length !== 1 ? "s" : ""} · Published
+                  </p>
+                </div>
+                <Icon name="check_circle" size={18} filled className="text-success flex-shrink-0" />
+              </div>
             ))}
           </div>
         </div>
+      )}
 
-        {/* Action Buttons */}
-        <div className="flex gap-4 flex-wrap justify-center">
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-full font-medium"
-            style={{
-              backgroundColor: "#8FAF8A",
-              color: "white",
-              fontFamily: "'DM Sans', sans-serif",
-              textDecoration: "none",
-            }}
-          >
-            Back to Dashboard
-          </Link>
-          <Link
-            href="/dashboard/new"
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-full font-medium border"
-            style={{
-              borderColor: "#8FAF8A",
-              color: "#8FAF8A",
-              fontFamily: "'DM Sans', sans-serif",
-              textDecoration: "none",
-            }}
-          >
-            Create Another Job
-          </Link>
-        </div>
-      </main>
-
-      <style>{`
-        @keyframes scaleIn {
-          0% {
-            transform: scale(0.5);
-            opacity: 0;
-          }
-          100% {
-            transform: scale(1);
-            opacity: 1;
-          }
-        }
-      `}</style>
+      {/* Actions */}
+      <div className="flex gap-sm flex-wrap justify-center">
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-sm h-12 px-xl rounded-full bg-primary text-on-primary font-ui-label text-ui-label font-medium shadow-card hover:opacity-90 transition-all"
+        >
+          <Icon name="dashboard" size={18} />
+          Back to Dashboard
+        </Link>
+        <Link
+          href="/dashboard/new"
+          className="inline-flex items-center gap-sm h-12 px-xl rounded-full border-[1.5px] border-primary text-primary font-ui-label text-ui-label font-medium hover:bg-primary/5 transition-all"
+        >
+          <Icon name="add" size={18} />
+          Create Another Job
+        </Link>
+      </div>
     </div>
   );
 }

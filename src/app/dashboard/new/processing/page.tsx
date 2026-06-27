@@ -141,6 +141,7 @@ function categoryFromSlot(shortKey: string): "ecommerce" | "lifestyle" | "closeu
 export default function ProcessingPage() {
   const router = useRouter();
   const startedRef = useRef(false);
+  const cancelledRef = useRef(false);
   const [products, setProducts] = useState<ProductState[]>([]);
   const [phase, setPhase] = useState<"idle" | "running" | "done" | "error">("idle");
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -200,8 +201,16 @@ export default function ProcessingPage() {
     );
   }
 
+  function cancelPipeline() {
+    cancelledRef.current = true;
+    sessionStorage.removeItem("generatedDrafts");
+    sessionStorage.removeItem("pipelineStartTime");
+    router.push("/dashboard/new");
+  }
+
   async function runPipeline() {
     setPhase("running");
+    sessionStorage.setItem("pipelineStartTime", String(Date.now()));
 
     const finalDrafts: Array<{
       id: string;
@@ -222,6 +231,7 @@ export default function ProcessingPage() {
     }> = [];
 
     for (const product of products) {
+      if (cancelledRef.current) break;
       patchProduct(product.id, { status: "generating_text" });
       appendLog(product.id, "Scraping supplier + generating copy & SEO…");
 
@@ -268,7 +278,7 @@ export default function ProcessingPage() {
       async function worker() {
         while (queue.length > 0) {
           const slot = queue.shift();
-          if (!slot) return;
+          if (!slot || cancelledRef.current) return;
           patchImage(product.id, slot.shortKey, { status: "running" });
           try {
             const r = await rateLimitQueue.add(async () => {
@@ -384,11 +394,22 @@ export default function ProcessingPage() {
 
   return (
     <div className="flex flex-col gap-lg max-w-4xl pb-[200px]">
-      <div>
-        <p className="font-ui-label text-ui-label text-text-muted text-sm">
-          {overallPct}% complete
-        </p>
-        <h1 className="font-section-heading text-section-heading mt-xs">Generating…</h1>
+      <div className="flex items-start justify-between gap-md">
+        <div>
+          <p className="font-ui-label text-ui-label text-text-muted text-sm">
+            {overallPct}% complete
+          </p>
+          <h1 className="font-section-heading text-section-heading mt-xs">Generating…</h1>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={cancelPipeline}
+          className="flex-shrink-0 mt-xs"
+        >
+          <Icon name="close" size={16} />
+          Cancel
+        </Button>
       </div>
 
       <div className="w-full bg-surface-variant rounded-full h-2">

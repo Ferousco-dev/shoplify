@@ -68,8 +68,16 @@ export default function DashboardHome({
   });
 
   const jobs = jobsQuery.data ?? [];
-  const activeCount = jobs.filter((j) => ACTIVE.has(j.status)).length;
-  const spoonsUsed = Math.min(12, activeCount * 2 + 6);
+  const completedToday = jobs.filter((j) => {
+    const isToday = new Date(j.created_at).toDateString() === new Date().toDateString();
+    return isToday && j.status === "completed";
+  }).length;
+  const totalToday = jobs.filter((j) =>
+    new Date(j.created_at).toDateString() === new Date().toDateString()
+  ).length;
+  const spoonsUsed = totalToday > 0 ? completedToday : 0;
+  const spoonTotal = Math.max(totalToday, 1);
+  const awaitingReview = jobs.filter((j) => j.status === "awaiting_review");
 
   return (
     <div className="flex flex-col gap-lg">
@@ -78,9 +86,6 @@ export default function DashboardHome({
         <div className="flex flex-col gap-lg min-w-0">
           {/* Hero card */}
           <section className="rounded-3xl bg-warm-white border border-border/40 shadow-card p-lg sm:p-xl">
-            <p className="font-spoonie-italic text-spoonie-italic italic text-primary">
-              By/For/With Spoonies
-            </p>
             <h1 className="font-section-heading text-display-hero-mobile sm:text-[3.25rem] lg:text-[3.75rem] text-text-primary leading-[1.05] mt-sm">
               Turn supplier links into Shopify listings{" "}
               <span className="font-spoonie-italic italic text-primary">
@@ -88,8 +93,8 @@ export default function DashboardHome({
               </span>
             </h1>
             <p className="font-ui-label text-base text-text-muted mt-md max-w-xl leading-relaxed">
-              Low-energy tools for high-impact inventory management. We handle the
-              heavy lifting so you can save your spoons for what matters.
+              Low-energy tools for high-impact inventory management. We handle
+              the heavy lifting so you can save your spoons for what matters.
             </p>
             <div className="flex flex-wrap gap-sm mt-lg">
               <Link
@@ -147,7 +152,8 @@ export default function DashboardHome({
               </div>
             ) : jobs.length === 0 ? (
               <div className="p-xl text-center font-ui-label text-ui-label text-text-muted">
-                Nothing here yet. Upload a CSV or add a product manually to get started.
+                Nothing here yet. Upload a CSV or add a product manually to get
+                started.
               </div>
             ) : (
               <>
@@ -156,10 +162,14 @@ export default function DashboardHome({
                   <table className="w-full">
                     <thead>
                       <tr className="text-text-muted font-ui-label text-[0.7rem] uppercase tracking-wider text-left">
-                        <th className="px-lg py-sm font-medium">Product Name</th>
+                        <th className="px-lg py-sm font-medium">
+                          Product Name
+                        </th>
                         <th className="px-lg py-sm font-medium">Source</th>
                         <th className="px-lg py-sm font-medium">Status</th>
-                        <th className="px-lg py-sm font-medium text-right">Date</th>
+                        <th className="px-lg py-sm font-medium text-right">
+                          Date
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/30">
@@ -213,7 +223,11 @@ export default function DashboardHome({
                         href={`/dashboard/jobs/${j.id}`}
                         className="flex items-center gap-sm px-md py-sm hover:bg-surface-container-low/40 transition-colors"
                       >
-                        <ProductThumbnail src={null} alt={j.source_filename} size="sm" />
+                        <ProductThumbnail
+                          src={null}
+                          alt={j.source_filename}
+                          size="sm"
+                        />
                         <div className="flex-1 min-w-0">
                           <p className="font-section-heading text-base text-text-primary truncate">
                             {j.source_filename}
@@ -254,44 +268,79 @@ export default function DashboardHome({
             <p className="font-ui-label text-ui-label text-text-muted mb-sm">
               Low Energy Tasks
             </p>
-            <ul className="flex flex-col gap-sm">
-              {[
-                { label: "Review 5 AI descriptions", href: "/dashboard/products" },
-                { label: "Categorize loose links", href: "/dashboard/products" },
-                { label: "Check Shopify draft status", href: "/dashboard/inventory" },
-              ].map((t) => (
-                <li key={t.label}>
-                  <Link
-                    href={t.href}
-                    className="flex items-center gap-sm font-ui-label text-ui-label text-text-primary hover:text-primary transition-colors"
-                  >
-                    <span className="w-4 h-4 border border-border rounded flex-shrink-0" />
-                    {t.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            {jobsQuery.isLoading ? (
+              <div className="py-sm flex justify-center">
+                <DotsLoader size="sm" />
+              </div>
+            ) : awaitingReview.length > 0 ? (
+              <ul className="flex flex-col gap-sm">
+                {awaitingReview.slice(0, 3).map((j) => (
+                  <li key={j.id}>
+                    <Link
+                      href={`/dashboard/jobs/${j.id}/scrape-review`}
+                      className="flex items-center gap-sm font-ui-label text-ui-label text-text-primary hover:text-primary transition-colors"
+                    >
+                      <span className="w-4 h-4 border border-primary/50 rounded flex-shrink-0 bg-primary/10" />
+                      <span className="truncate">Review: {j.source_filename}</span>
+                    </Link>
+                  </li>
+                ))}
+                {awaitingReview.length > 3 && (
+                  <li>
+                    <Link
+                      href="/dashboard/jobs"
+                      className="font-ui-label text-ui-label text-primary hover:underline"
+                    >
+                      +{awaitingReview.length - 3} more to review
+                    </Link>
+                  </li>
+                )}
+              </ul>
+            ) : (
+              <ul className="flex flex-col gap-sm">
+                {[
+                  { label: "Upload a new product CSV", href: "/dashboard/new" },
+                  { label: "Browse your products", href: "/dashboard/products" },
+                  { label: "Check inventory levels", href: "/dashboard/inventory" },
+                ].map((t) => (
+                  <li key={t.label}>
+                    <Link
+                      href={t.href}
+                      className="flex items-center gap-sm font-ui-label text-ui-label text-text-primary hover:text-primary transition-colors"
+                    >
+                      <span className="w-4 h-4 border border-border rounded flex-shrink-0" />
+                      {t.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div className="rounded-3xl border border-border/40 bg-warm-white shadow-sm p-lg">
             <p className="font-ui-label text-ui-label text-text-muted mb-sm">
-              Current Spoon Status
+              Today&rsquo;s Progress
             </p>
             <div className="flex items-center gap-sm">
               <Icon name="mood" size={20} className="text-primary" />
               <div className="relative h-3 flex-1 bg-surface-variant rounded-full overflow-hidden">
                 <div
                   className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all"
-                  style={{ width: `${(spoonsUsed / 12) * 100}%` }}
+                  style={{ width: `${(spoonsUsed / spoonTotal) * 100}%` }}
                 />
               </div>
               <span className="font-mono-data text-mono-data text-text-muted">
-                {spoonsUsed}/12
+                {spoonsUsed}/{spoonTotal}
               </span>
             </div>
             <p className="font-ui-label text-ui-label text-text-muted mt-sm">
+              {totalToday === 0 ? "No jobs started today" : `${completedToday} of ${totalToday} job${totalToday !== 1 ? "s" : ""} completed today`}
+            </p>
+            <p className="font-ui-label text-ui-label text-text-muted mt-xs">
               Connected to{" "}
-              <span className="font-mono-data text-text-primary">{shopName}</span>
+              <span className="font-mono-data text-text-primary">
+                {shopName}
+              </span>
             </p>
           </div>
         </aside>
@@ -314,11 +363,14 @@ function StatTile({
   loading: boolean;
 }) {
   const palette =
-    tone === "ready"
-      ? "bg-badge-ready-bg/40"
-      : "bg-surface-variant/60";
+    tone === "ready" ? "bg-badge-ready-bg/40" : "bg-surface-variant/60";
   return (
-    <div className={cn("rounded-2xl border border-border/40 p-lg flex items-center gap-md", palette)}>
+    <div
+      className={cn(
+        "rounded-2xl border border-border/40 p-lg flex items-center gap-md",
+        palette,
+      )}
+    >
       <span className="w-12 h-12 rounded-2xl bg-warm-white flex items-center justify-center text-primary flex-shrink-0">
         <Icon name={icon} size={24} />
       </span>

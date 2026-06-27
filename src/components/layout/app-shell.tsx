@@ -147,9 +147,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
        * `pt-safe` respects the iOS notch / Dynamic Island. `px-md` on
        * mobile drops to a comfortable 16px, expanding to 24px from md up.
        */}
-      <header
-        className="fixed top-0 right-0 left-0 md:left-[288px] z-30 flex justify-between items-center gap-sm px-md md:px-lg py-md pt-safe bg-background/90 backdrop-blur-md border-b border-border/30"
-      >
+      <header className="fixed top-0 right-0 left-0 md:left-[288px] z-30 flex justify-between items-center gap-sm px-md md:px-lg py-md pt-safe bg-background/90 backdrop-blur-md border-b border-border/30">
         <div className="flex items-center gap-sm min-w-0">
           {/* Hamburger — mobile only */}
           <button
@@ -165,7 +163,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
           {shopName ? (
             <span className="inline-flex items-center gap-xs font-ui-label text-ui-label text-text-muted truncate">
               <Icon name="storefront" size={16} className="text-primary" />
-              <span className="font-mono-data text-text-primary truncate">{shopName}</span>
+              <span className="font-mono-data text-text-primary truncate">
+                {shopName}
+              </span>
             </span>
           ) : (
             <span className="font-ui-label text-ui-label text-text-muted truncate">
@@ -256,9 +256,6 @@ function SideNav({
             <h1 className="font-section-heading text-lg text-primary font-semibold leading-none">
               Alivio Plus
             </h1>
-            <p className="font-spoonie-italic text-xs text-text-muted italic mt-0.5">
-              By/For/With Spoonies
-            </p>
           </div>
         </Link>
         {/* Close button — mobile only. Desktop sidebar is always pinned so
@@ -297,7 +294,9 @@ function SideNav({
                   !active && "group-hover:text-primary transition-colors",
                 )}
               />
-              <span className="font-ui-label text-[0.95rem] font-medium">{item.label}</span>
+              <span className="font-ui-label text-[0.95rem] font-medium">
+                {item.label}
+              </span>
             </Link>
           );
         })}
@@ -319,7 +318,9 @@ function SideNav({
               )}
             >
               <Icon name={item.icon} size={22} className="mr-md" />
-              <span className="font-ui-label text-[0.95rem] font-medium">{item.label}</span>
+              <span className="font-ui-label text-[0.95rem] font-medium">
+                {item.label}
+              </span>
             </Link>
           );
         })}
