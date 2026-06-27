@@ -10,7 +10,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const origin = new URL(req.url).origin;
+  // Always use the canonical production URL so the generated Apps Script
+  // points to Vercel, not localhost, even when the page is opened in dev.
+  const origin =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : new URL(req.url).origin);
   const secret = generateWebhookSecret(auth.storeId);
   const webhookUrl = `${origin}/api/webhooks/sheets/${auth.storeId}`;
 
