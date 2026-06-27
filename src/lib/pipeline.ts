@@ -356,14 +356,24 @@ export async function generateImageForSlot(opts: {
   let imgBytes: Uint8Array;
   let imgMime: string;
 
+  let higgsfieldUsed = false;
   if (higgsfieldConfigured()) {
-    const result = await higgsfieldImage({
-      prompt: rendered,
-      referenceImageUrls: allRefUrls.slice(0, 4),
-    });
-    imgBytes = result.bytes;
-    imgMime = result.mimeType;
-  } else {
+    try {
+      const result = await higgsfieldImage({
+        prompt: rendered,
+        referenceImageUrls: allRefUrls.slice(0, 4),
+      });
+      imgBytes = result.bytes;
+      imgMime = result.mimeType;
+      higgsfieldUsed = true;
+    } catch (hfErr) {
+      console.warn(
+        `[pipeline] Higgsfield failed for ${opts.slot.shortKey}, falling back to Gemini:`,
+        (hfErr as Error).message,
+      );
+    }
+  }
+  if (!higgsfieldUsed) {
     const refs: Array<{ bytes: Uint8Array; mimeType: string }> = [];
     for (const url of allRefUrls.slice(0, 3)) {
       try {
