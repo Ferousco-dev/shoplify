@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Icon } from "@/components/ui/icon";
 import { DotsLoader } from "@/components/ui/dots-loader";
@@ -120,6 +121,15 @@ export default function InventoryPage() {
               ? "Try a different search or filter."
               : "Publish products to your Shopify store to see inventory here."}
           </p>
+          {!invQuery.data?.length && (
+            <Link
+              href="/dashboard/new"
+              className="mt-sm inline-flex items-center gap-xs h-10 px-lg rounded-full bg-primary text-on-primary font-ui-label text-ui-label font-medium hover:opacity-90 transition-all"
+            >
+              <Icon name="upload_file" size={16} />
+              Generate Products
+            </Link>
+          )}
         </div>
       ) : (
         <div className="rounded-2xl sm:rounded-3xl border border-border/40 bg-warm-white shadow-sm overflow-hidden">

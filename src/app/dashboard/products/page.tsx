@@ -115,6 +115,15 @@ export default function ProductsPage() {
               ? "Try a different search or filter."
               : "Generate your first product to get started."}
           </p>
+          {!productsQuery.data?.length && (
+            <Link
+              href="/dashboard/new"
+              className="mt-sm inline-flex items-center gap-xs h-10 px-lg rounded-full bg-primary text-on-primary font-ui-label text-ui-label font-medium hover:opacity-90 transition-all"
+            >
+              <Icon name="upload_file" size={16} />
+              Upload CSV
+            </Link>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-md">

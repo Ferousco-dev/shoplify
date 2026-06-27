@@ -179,7 +179,7 @@ export default function ReviewPage() {
 
   const sections: { key: SectionKey; icon: string; label: string; count?: number }[] = [
     { key: "images", icon: "photo_library", label: "Images", count: selected.images.length },
-    { key: "copy", icon: "description", label: "Copy & Meta" },
+    { key: "copy", icon: "description", label: "Copy & SEO" },
     { key: "seo", icon: "search", label: "SEO Tools" },
     { key: "shopify", icon: "storefront", label: "Shopify Sync" },
   ];
@@ -341,7 +341,7 @@ export default function ReviewPage() {
             </section>
           )}
 
-          {(activeSection === "images" || activeSection === "copy") && (
+          {activeSection === "copy" && (
             <section>
               <h2 className="font-section-heading text-2xl text-text-primary mb-md">
                 Shopify Metafields

@@ -164,8 +164,24 @@ export default function JobHistoryPage() {
             {(jobsQuery.error as Error).message}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="p-xl text-center text-text-muted">
-            No jobs match your filters yet.
+          <div className="p-xl flex flex-col items-center text-center gap-sm">
+            <p className="font-section-heading text-base text-text-primary">
+              {jobs.length === 0 ? "No jobs yet" : "No jobs match your filters"}
+            </p>
+            <p className="font-ui-label text-ui-label text-text-muted">
+              {jobs.length === 0
+                ? "Upload a CSV to generate your first batch of products."
+                : "Try adjusting the status filter or time range."}
+            </p>
+            {jobs.length === 0 && (
+              <Link
+                href="/dashboard/new"
+                className="mt-sm inline-flex items-center gap-xs h-10 px-lg rounded-full bg-primary text-on-primary font-ui-label text-ui-label font-medium hover:opacity-90 transition-all"
+              >
+                <Icon name="upload_file" size={16} />
+                Upload CSV
+              </Link>
+            )}
           </div>
         ) : (
           <>
