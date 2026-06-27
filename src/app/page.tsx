@@ -31,13 +31,7 @@ export default async function Home() {
 
       {/* ── Nav ── */}
       <header className="sticky top-0 z-20 flex items-center justify-between px-md sm:px-xl py-sm border-b border-border/50 bg-background">
-        <div className="flex items-center gap-sm">
-          <AlivioMark className="w-9 h-9 flex-shrink-0" />
-          <div className="leading-none">
-            <p className="text-sm font-semibold text-text-primary leading-none">Alivio Plus</p>
-            <p className="text-xs text-text-muted font-spoonie-italic italic mt-0.5">By/For/With Spoonies</p>
-          </div>
-        </div>
+        <AlivioMark className="h-9 w-auto" />
         <Link
           href="/tutorial"
           className="inline-flex items-center gap-xs text-sm text-text-muted hover:text-primary transition-colors"
@@ -141,7 +135,7 @@ export default async function Home() {
       {/* ── Footer ── */}
       <footer className="border-t border-border/40 px-md sm:px-xl py-md flex flex-col sm:flex-row items-center justify-between gap-sm text-xs text-text-muted bg-background">
         <div className="flex items-center gap-xs">
-          <AlivioMark className="w-5 h-5" />
+          <AlivioMark className="h-5 w-auto" />
           <span>© {new Date().getFullYear()} Alivio Plus</span>
         </div>
         <div className="flex items-center gap-lg">

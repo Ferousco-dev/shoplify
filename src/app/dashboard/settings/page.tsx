@@ -11,6 +11,8 @@ type SubmitStatus = "idle" | "submitting" | "success" | "error";
 type Credentials = {
   anthropicApiKey: string;
   geminiApiKey: string;
+  higgsfieldApiKey: string;
+  higgsfieldSecret: string;
   googleSerpApiKey: string;
   storeUrl: string;
 };
@@ -26,6 +28,8 @@ export default function SettingsPage() {
   const [credentials, setCredentials] = useState<Credentials>({
     anthropicApiKey: "",
     geminiApiKey: "",
+    higgsfieldApiKey: "",
+    higgsfieldSecret: "",
     googleSerpApiKey: "",
     storeUrl: "",
   });
@@ -83,6 +87,8 @@ export default function SettingsPage() {
           body: JSON.stringify({
             anthropicApiKey: credentials.anthropicApiKey || undefined,
             geminiApiKey: credentials.geminiApiKey || undefined,
+            higgsfieldApiKey: credentials.higgsfieldApiKey || undefined,
+            higgsfieldSecret: credentials.higgsfieldSecret || undefined,
           }),
         });
         const body = await res.json();
@@ -109,9 +115,11 @@ export default function SettingsPage() {
     [credentials, preferences],
   );
 
-  const apiKeyFields: { label: string; key: keyof Credentials }[] = [
+  const apiKeyFields: { label: string; key: keyof Credentials; hint?: string }[] = [
     { label: "Anthropic API Key", key: "anthropicApiKey" },
     { label: "Gemini API Key", key: "geminiApiKey" },
+    { label: "Higgsfield API Key", key: "higgsfieldApiKey", hint: "cloud.higgsfield.ai" },
+    { label: "Higgsfield Secret", key: "higgsfieldSecret" },
     { label: "Google SERP API Key", key: "googleSerpApiKey" },
   ];
 
@@ -140,9 +148,12 @@ export default function SettingsPage() {
       <form onSubmit={onSubmit} className="space-y-xl">
         <Section icon="vpn_key" title="API CREDENTIALS" subtitle="Manage your search and intelligence engines">
           <div className="space-y-md">
-            {apiKeyFields.map(({ label, key }) => (
+            {apiKeyFields.map(({ label, key, hint }) => (
               <div key={key} className="space-y-xs">
-                <Label htmlFor={key}>{label}</Label>
+                <div className="flex items-baseline justify-between gap-sm">
+                  <Label htmlFor={key}>{label}</Label>
+                  {hint && <span className="text-xs text-text-muted">{hint}</span>}
+                </div>
                 <div className="flex gap-sm">
                   <Input
                     id={key}

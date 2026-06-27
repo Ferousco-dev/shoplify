@@ -20,12 +20,12 @@ export type HiggsfieldImageResult = {
   mediaUrl: string;
 };
 
-function getCredentials(): { apiKey: string; secret: string } {
-  const apiKey = process.env.HIGGSFIELD_API_KEY;
-  const secret = process.env.HIGGSFIELD_SECRET;
+function getCredentials(overrides?: { apiKey?: string; secret?: string }): { apiKey: string; secret: string } {
+  const apiKey = overrides?.apiKey || process.env.HIGGSFIELD_API_KEY;
+  const secret = overrides?.secret || process.env.HIGGSFIELD_SECRET;
   if (!apiKey || !secret) {
     throw new Error(
-      "HIGGSFIELD_API_KEY and HIGGSFIELD_SECRET must be set in environment variables",
+      "HIGGSFIELD_API_KEY and HIGGSFIELD_SECRET must be set in environment variables or user settings",
     );
   }
   return { apiKey, secret };
@@ -62,8 +62,10 @@ export async function higgsfieldImage(opts: {
   prompt: string;
   referenceImageUrls?: string[];
   seed?: number;
+  apiKey?: string;
+  secret?: string;
 }): Promise<HiggsfieldImageResult> {
-  const { apiKey, secret } = getCredentials();
+  const { apiKey, secret } = getCredentials({ apiKey: opts.apiKey, secret: opts.secret });
 
   // Build the request body. Higgsfield accepts image_urls for reference-based
   // generation which is what gives us cross-shot product consistency.
@@ -190,8 +192,10 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Returns true when Higgsfield credentials are configured.
- * Used to decide at runtime whether to use Higgsfield or fall back to Gemini.
+ * Checks session overrides first, then falls back to env vars.
  */
-export function higgsfieldConfigured(): boolean {
-  return !!(process.env.HIGGSFIELD_API_KEY && process.env.HIGGSFIELD_SECRET);
+export function higgsfieldConfigured(overrides?: { apiKey?: string; secret?: string }): boolean {
+  const apiKey = overrides?.apiKey || process.env.HIGGSFIELD_API_KEY;
+  const secret = overrides?.secret || process.env.HIGGSFIELD_SECRET;
+  return !!(apiKey && secret);
 }

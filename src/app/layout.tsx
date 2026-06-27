@@ -4,7 +4,11 @@ import Providers from "@/components/providers";
 
 export const metadata: Metadata = {
   title: "Alivio Plus — Shopify Automator",
-  description: "By/For/With Spoonies — gently automating your shop",
+  description: "AI-powered Shopify product automation",
+  icons: {
+    icon: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export const viewport = {

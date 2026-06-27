@@ -8,6 +8,8 @@ export type ShopifySession = {
   shopName?: string;
   anthropicApiKey?: string;
   geminiApiKey?: string;
+  higgsfieldApiKey?: string;
+  higgsfieldSecret?: string;
 };
 
 if (

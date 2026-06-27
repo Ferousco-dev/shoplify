@@ -11,6 +11,8 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const anthropicApiKey = String(body.anthropicApiKey || "").trim() || undefined;
   const geminiApiKey = String(body.geminiApiKey || "").trim() || undefined;
+  const higgsfieldApiKey = String(body.higgsfieldApiKey || "").trim() || undefined;
+  const higgsfieldSecret = String(body.higgsfieldSecret || "").trim() || undefined;
 
   // Validate keys by making test API calls
   if (anthropicApiKey) {
@@ -38,12 +40,15 @@ export async function POST(req: Request) {
   const session = await getSession();
   session.anthropicApiKey = anthropicApiKey;
   session.geminiApiKey = geminiApiKey;
+  session.higgsfieldApiKey = higgsfieldApiKey;
+  session.higgsfieldSecret = higgsfieldSecret;
   await session.save();
 
   return NextResponse.json({
     ok: true,
-    anthropicSource: anthropicApiKey ? "user" : "alivio",
-    geminiSource: geminiApiKey ? "user" : "alivio",
+    anthropicSource: anthropicApiKey ? "user" : "env",
+    geminiSource: geminiApiKey ? "user" : "env",
+    higgsfieldSource: higgsfieldApiKey ? "user" : "env",
   });
 }
 

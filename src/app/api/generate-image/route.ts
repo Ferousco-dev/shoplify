@@ -3,7 +3,7 @@ import { loadPrompt, render } from "@/lib/prompts";
 import { fetchReferenceImage, geminiImage } from "@/lib/gemini";
 import { higgsfieldImage, higgsfieldConfigured } from "@/lib/higgsfield";
 import { stageUpload, uploadBytesToStaged } from "@/lib/shopify";
-import { requireShopify } from "@/lib/session";
+import { requireShopify, getSession } from "@/lib/session";
 import { IMAGE_SLOTS, slotByShortKey } from "@/lib/slots";
 
 export const runtime = "nodejs";
@@ -69,13 +69,18 @@ export async function POST(req: Request) {
   let imageBytes: Uint8Array;
   let imageMimeType: string;
 
-  if (higgsfieldConfigured()) {
+  const session = await getSession();
+  const hfOverrides = {
+    apiKey: session.higgsfieldApiKey,
+    secret: session.higgsfieldSecret,
+  };
+
+  if (higgsfieldConfigured(hfOverrides)) {
     // ── Higgsfield path ──────────────────────────────────────────────────────
-    // Pass all reference URLs directly — Higgsfield does its own fetching and
-    // uses them as visual anchors for product consistency.
     const result = await higgsfieldImage({
       prompt: rendered,
       referenceImageUrls: refUrls.slice(0, 4),
+      ...hfOverrides,
     });
     imageBytes = result.bytes;
     imageMimeType = result.mimeType;

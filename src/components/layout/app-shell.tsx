@@ -227,13 +227,8 @@ function SideNav({
       )}
     >
       <div className="mb-xl flex items-start justify-between gap-sm">
-        <Link href="/dashboard" className="flex items-center gap-sm group">
-          <AlivioMark className="w-10 h-10 flex-shrink-0 group-hover:scale-105 transition-transform duration-150" />
-          <div className="leading-none">
-            <h1 className="font-section-heading text-lg text-primary font-semibold leading-none">
-              Alivio Plus
-            </h1>
-          </div>
+        <Link href="/dashboard" className="group">
+          <AlivioMark className="h-10 w-auto group-hover:scale-105 transition-transform duration-150" />
         </Link>
         {/* Close button — mobile only. Desktop sidebar is always pinned so
             no close affordance is needed. */}
