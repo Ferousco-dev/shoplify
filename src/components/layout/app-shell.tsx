@@ -173,29 +173,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-md">
-          <button
-            type="button"
-            aria-label="Notifications"
-            className="p-2 -m-2 text-text-muted hover:text-primary transition-colors rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-          >
-            <Icon name="notifications" size={22} />
-          </button>
-          <button
-            type="button"
-            aria-label="Help"
-            className="p-2 -m-2 text-text-muted hover:text-primary transition-colors rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-          >
-            <Icon name="help_outline" size={22} />
-          </button>
-          <div
-            role="img"
-            aria-label="Operator profile"
-            className="w-10 h-10 rounded-full bg-primary-container border-2 border-primary-fixed flex items-center justify-center text-on-primary-container font-ui-label"
-          >
-            A
-          </div>
-        </div>
       </header>
 
       {/* Main panel.
