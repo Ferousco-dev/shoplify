@@ -273,43 +273,57 @@ export default function ProcessingPage() {
       });
 
       const completedImages: GenerateImageResponse[] = [];
-      const queue = [...textRes.slots];
+
+      async function generateSlot(slot: SlotMeta, heroImageUrl?: string): Promise<void> {
+        patchImage(product.id, slot.shortKey, { status: "running" });
+        try {
+          const r = await rateLimitQueue.add(async () => {
+            const res = await fetch("/api/generate-image", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                shortKey: slot.shortKey,
+                promptCtx: textRes.promptCtx,
+                alt: slot.alt,
+                referenceImages: textRes.referenceImages,
+                lifestylePrompt: textRes.lifestylePrompts[slot.shortKey],
+                heroImageUrl,
+              }),
+            });
+            const body = await res.json();
+            if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+            return body as GenerateImageResponse;
+          });
+          completedImages.push(r);
+          patchImage(product.id, slot.shortKey, {
+            status: "done",
+            preview: r.previewDataUrl,
+            resourceUrl: r.resourceUrl,
+            alt: r.alt,
+          });
+          appendLog(product.id, `✓ ${slot.label}`);
+        } catch (e) {
+          const msg = (e as Error).message;
+          patchImage(product.id, slot.shortKey, { status: "error", error: msg });
+          appendLog(product.id, `✗ ${slot.label}: ${msg}`);
+        }
+      }
+
+      // Generate hero/front shot first — its URL anchors all remaining slots
+      const frontSlot = textRes.slots.find((s) => s.shortKey === "front") ?? textRes.slots[0];
+      appendLog(product.id, `Generating hero shot (${frontSlot.label})…`);
+      await generateSlot(frontSlot);
+      const heroImageUrl = completedImages.find((img) => img.shortKey === frontSlot.shortKey)?.resourceUrl;
+
+      // Remaining slots with bounded concurrency, all anchored to the hero shot
+      const remainingSlots = textRes.slots.filter((s) => s.shortKey !== frontSlot.shortKey);
+      const queue = [...remainingSlots];
 
       async function worker() {
         while (queue.length > 0) {
           const slot = queue.shift();
           if (!slot || cancelledRef.current) return;
-          patchImage(product.id, slot.shortKey, { status: "running" });
-          try {
-            const r = await rateLimitQueue.add(async () => {
-              const res = await fetch("/api/generate-image", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  shortKey: slot.shortKey,
-                  promptCtx: textRes.promptCtx,
-                  alt: slot.alt,
-                  referenceImages: textRes.referenceImages,
-                  lifestylePrompt: textRes.lifestylePrompts[slot.shortKey],
-                }),
-              });
-              const body = await res.json();
-              if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-              return body as GenerateImageResponse;
-            });
-            completedImages.push(r);
-            patchImage(product.id, slot.shortKey, {
-              status: "done",
-              preview: r.previewDataUrl,
-              resourceUrl: r.resourceUrl,
-              alt: r.alt,
-            });
-            appendLog(product.id, `✓ ${slot.label}`);
-          } catch (e) {
-            const msg = (e as Error).message;
-            patchImage(product.id, slot.shortKey, { status: "error", error: msg });
-            appendLog(product.id, `✗ ${slot.label}: ${msg}`);
-          }
+          await generateSlot(slot, heroImageUrl);
         }
       }
 
