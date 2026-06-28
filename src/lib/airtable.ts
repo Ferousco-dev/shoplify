@@ -1,36 +1,48 @@
 const AIRTABLE_BASE = "https://api.airtable.com/v0";
 
-export type AirtableWriteFields = {
-  generatedTitle?: string;
-  generatedDescription?: string;
-  imageUrls?: string[];
-  status?: string;
+// Maps pipeline slot short-keys to the client's exact Airtable column names.
+// Slots without a matching column (flatlay, ugc_routine, ugc_use) are skipped.
+const SLOT_TO_COLUMN: Record<string, string> = {
+  front: "Front Hero_Image",
+  three_quarter: "Three-Quarter_Image",
+  profile: "Profile_view_Image",
+  birds_eye: "Birds_Eye_Image",
+  scale_correct: "Scale-Correct_Lifestyle_Image_url",
+  human_perspective: "Human_Perspective_Image",
+  ambient: "Ambient_Lifestyle_Image",
+  rear: "Rear_Base_Image",
+  texture: "Texture_Detail_Image",
+  functional: "Functional_Detail_Image",
+  branding: "Branding_Detail_Image",
 };
+
+export type SlotImageMap = Record<string, string>; // shortKey → public_url
 
 export async function writeBackToAirtable(opts: {
   pat: string;
   baseId: string;
   tableId: string;
   recordId: string;
-  fields: AirtableWriteFields;
+  slotImages: SlotImageMap;
+  status?: string;
 }): Promise<void> {
-  const { pat, baseId, tableId, recordId, fields } = opts;
+  const { pat, baseId, tableId, recordId, slotImages, status } = opts;
 
-  const patchFields: Record<string, unknown> = {};
+  const fields: Record<string, unknown> = {};
 
-  if (fields.generatedTitle) {
-    patchFields["Generated Title"] = fields.generatedTitle;
+  // Write each slot to its dedicated Airtable attachment column
+  for (const [slot, url] of Object.entries(slotImages)) {
+    const col = SLOT_TO_COLUMN[slot];
+    if (col && url) {
+      fields[col] = [{ url }];
+    }
   }
-  if (fields.generatedDescription) {
-    patchFields["Generated Description"] = fields.generatedDescription;
+
+  if (status) {
+    fields["Status"] = status;
   }
-  if (fields.status) {
-    patchFields["AI Status"] = fields.status;
-  }
-  if (fields.imageUrls?.length) {
-    // Airtable attachment format: array of { url }
-    patchFields["Generated Images"] = fields.imageUrls.map((url) => ({ url }));
-  }
+
+  if (Object.keys(fields).length === 0) return;
 
   const res = await fetch(`${AIRTABLE_BASE}/${baseId}/${tableId}/${recordId}`, {
     method: "PATCH",
@@ -38,7 +50,7 @@ export async function writeBackToAirtable(opts: {
       Authorization: `Bearer ${pat}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ fields: patchFields }),
+    body: JSON.stringify({ fields }),
   });
 
   if (!res.ok) {

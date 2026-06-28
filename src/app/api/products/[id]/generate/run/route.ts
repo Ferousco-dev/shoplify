@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { processProductGenerate } from "@/lib/pipeline";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { writeBackToAirtable } from "@/lib/airtable";
+import { writeBackToAirtable, type SlotImageMap } from "@/lib/airtable";
 
 export const runtime = "nodejs";
 // Copy (≈30s) + 14 images at 3-way concurrency (≈90s) fits comfortably under
@@ -101,26 +101,23 @@ async function maybeWriteBackToAirtable(productId: string, storeId: string): Pro
 
   const { data: assets } = await supabaseAdmin
     .from("product_assets")
-    .select("public_url")
+    .select("slot, public_url")
     .eq("product_id", productId)
     .eq("kind", "generated")
     .not("public_url", "is", null)
-    .limit(14);
+    .not("slot", "is", null);
 
-  const imageUrls = (assets ?? [])
-    .map((a) => a.public_url as string)
-    .filter(Boolean);
+  const slotImages: SlotImageMap = {};
+  for (const a of assets ?? []) {
+    if (a.slot && a.public_url) slotImages[a.slot as string] = a.public_url as string;
+  }
 
   await writeBackToAirtable({
     pat: config.pat,
     baseId: config.base_id,
     tableId: config.table_id,
     recordId: meta.airtable_record_id,
-    fields: {
-      generatedTitle: product.title || undefined,
-      generatedDescription: product.description || undefined,
-      imageUrls,
-      status: "Completed",
-    },
+    slotImages,
+    status: "In-Production",
   });
 }

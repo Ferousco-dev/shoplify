@@ -79,17 +79,17 @@ export async function POST(
     );
   }
 
-  // Map Airtable field names to the CsvRow shape the pipeline expects
+  // Map exact Airtable column names → CsvRow keys the pipeline expects.
   const f = body.fields;
   const csvRow = {
-    product_name: f.product_name || f.name || f.Name || f["Product Name"] || "",
-    amazon: f.amazon || f.amazon_url || f["Amazon URL"] || "",
-    alibaba1688: f.alibaba1688 || f["1688"] || f["1688 URL"] || "",
-    aliexpress: f.aliexpress || f["AliExpress URL"] || "",
-    alibaba: f.alibaba || f["Alibaba URL"] || "",
-    other: f.other || f.url || f.URL || "",
-    category: f.category || f.Category || "",
-    target_market: f.target_market || f["Target Market"] || "",
+    product_name: f["product_name"] || "",
+    amazon:       f["product url amazon"] || "",
+    alibaba1688:  f["product_url 1688"] || "",
+    aliexpress:   f["Product_url Aliexpress"] || "",
+    alibaba:      f["product_url ALIBABA"] || "",
+    other:        f["Other"] || f["Other "] || "",
+    category:     f["category"] || "",
+    target_market: f["target_market"] || "",
   };
 
   const { error: itemErr } = await supabaseAdmin.from("job_items").insert({
