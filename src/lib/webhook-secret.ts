@@ -20,3 +20,20 @@ export function verifyWebhookSecret(storeId: string, received: string): boolean 
     return false;
   }
 }
+
+export function generateAirtableWebhookSecret(storeId: string): string {
+  return crypto
+    .createHmac("sha256", base())
+    .update(`airtable-webhook:${storeId}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+export function verifyAirtableWebhookSecret(storeId: string, received: string): boolean {
+  const expected = generateAirtableWebhookSecret(storeId);
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(received));
+  } catch {
+    return false;
+  }
+}

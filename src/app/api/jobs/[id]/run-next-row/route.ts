@@ -39,7 +39,7 @@ export async function POST(
   // Check the job is still active (could have been cancelled while waiting).
   const { data: job, error: jobErr } = await supabaseAdmin
     .from("jobs")
-    .select("id, status, store_id")
+    .select("id, status, store_id, meta")
     .eq("id", jobId)
     .maybeSingle();
   if (jobErr) return NextResponse.json({ error: jobErr.message }, { status: 500 });
@@ -76,15 +76,18 @@ export async function POST(
     return NextResponse.json({ ok: true, done: true });
   }
 
+  let scrapedProductId: string | null = null;
   try {
     // Phase A only: scrape and persist raw scraped data. Image generation
-    // happens later, on user "Continue" via /api/products/:id/generate.
-    await processJobItemScrape({
+    // happens later, on user "Continue" via /api/products/:id/generate —
+    // unless this job came from Airtable, in which case we auto-fire Phase B.
+    const result = await processJobItemScrape({
       jobId,
       itemId: nextItem.id,
       storeId: job.store_id as string,
       row: (nextItem.raw_row ?? {}) as CsvRow,
     });
+    scrapedProductId = result.productId;
   } catch (e) {
     const msg = (e as Error).message;
     // Mark the item failed defensively so the runner never gets stuck in a
@@ -98,6 +101,29 @@ export async function POST(
       })
       .eq("id", nextItem.id);
     console.error(`[runner ${jobId}] item ${nextItem.id} threw:`, msg);
+  }
+
+  // For Airtable-triggered jobs, automatically kick off Phase B (copy + images)
+  // so the whole pipeline runs end-to-end without any manual "Continue" click.
+  const jobMeta = (job as { meta?: { source?: string } }).meta;
+  if (jobMeta?.source === "airtable" && scrapedProductId) {
+    void fetch(
+      `${new URL(req.url).origin}/api/products/${scrapedProductId}/generate/run`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-runner-secret": secret,
+        },
+        body: JSON.stringify({
+          shopDomain: body.shopDomain,
+          accessToken: body.accessToken,
+          storeId: job.store_id,
+        }),
+      },
+    ).catch((e) =>
+      console.error(`[runner ${jobId}] airtable auto-generate failed:`, e),
+    );
   }
 
   // Re-fire ourselves to pick up the next row. Fire-and-forget so the current

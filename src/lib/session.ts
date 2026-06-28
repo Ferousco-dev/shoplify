@@ -10,6 +10,9 @@ export type ShopifySession = {
   geminiApiKey?: string;
   higgsfieldApiKey?: string;
   higgsfieldSecret?: string;
+  airtablePat?: string;
+  airtableBaseId?: string;
+  airtableTableId?: string;
 };
 
 if (

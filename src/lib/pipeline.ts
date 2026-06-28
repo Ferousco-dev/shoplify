@@ -353,8 +353,8 @@ export async function generateImageForSlot(opts: {
     ...opts.referenceImages,
   ];
 
-  let imgBytes: Uint8Array;
-  let imgMime: string;
+  let imgBytes: Uint8Array = new Uint8Array(0);
+  let imgMime: string = "image/jpeg";
 
   let higgsfieldUsed = false;
   if (higgsfieldConfigured()) {

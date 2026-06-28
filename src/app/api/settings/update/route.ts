@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSession, requireShopify } from "@/lib/session";
+import { getSession, requireShopify, requireStore } from "@/lib/session";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(req: Request) {
   try {
@@ -13,6 +14,9 @@ export async function POST(req: Request) {
   const geminiApiKey = String(body.geminiApiKey || "").trim() || undefined;
   const higgsfieldApiKey = String(body.higgsfieldApiKey || "").trim() || undefined;
   const higgsfieldSecret = String(body.higgsfieldSecret || "").trim() || undefined;
+  const airtablePat = String(body.airtablePat || "").trim() || undefined;
+  const airtableBaseId = String(body.airtableBaseId || "").trim() || undefined;
+  const airtableTableId = String(body.airtableTableId || "").trim() || undefined;
 
   // Validate keys by making test API calls
   if (anthropicApiKey) {
@@ -42,13 +46,42 @@ export async function POST(req: Request) {
   session.geminiApiKey = geminiApiKey;
   session.higgsfieldApiKey = higgsfieldApiKey;
   session.higgsfieldSecret = higgsfieldSecret;
+  session.airtablePat = airtablePat;
+  session.airtableBaseId = airtableBaseId;
+  session.airtableTableId = airtableTableId;
   await session.save();
+
+  // Persist Airtable credentials to Supabase so webhook routes can access them
+  // without a user session.
+  if (airtablePat || airtableBaseId || airtableTableId) {
+    const auth = await requireStore();
+    if (!("error" in auth)) {
+      await supabaseAdmin
+        .from("store_integrations")
+        .upsert(
+          {
+            store_id: auth.storeId,
+            integration_type: "airtable",
+            config: {
+              pat: airtablePat,
+              base_id: airtableBaseId,
+              table_id: airtableTableId,
+            },
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "store_id,integration_type" },
+        )
+        .select()
+        .single();
+    }
+  }
 
   return NextResponse.json({
     ok: true,
     anthropicSource: anthropicApiKey ? "user" : "env",
     geminiSource: geminiApiKey ? "user" : "env",
     higgsfieldSource: higgsfieldApiKey ? "user" : "env",
+    airtableSource: airtablePat ? "user" : "none",
   });
 }
 

@@ -15,6 +15,9 @@ type Credentials = {
   higgsfieldSecret: string;
   googleSerpApiKey: string;
   storeUrl: string;
+  airtablePat: string;
+  airtableBaseId: string;
+  airtableTableId: string;
 };
 
 type Preferences = {
@@ -32,6 +35,9 @@ export default function SettingsPage() {
     higgsfieldSecret: "",
     googleSerpApiKey: "",
     storeUrl: "",
+    airtablePat: "",
+    airtableBaseId: "",
+    airtableTableId: "",
   });
   const [preferences, setPreferences] = useState<Preferences>({
     lowEnergyMode: false,
@@ -89,6 +95,9 @@ export default function SettingsPage() {
             geminiApiKey: credentials.geminiApiKey || undefined,
             higgsfieldApiKey: credentials.higgsfieldApiKey || undefined,
             higgsfieldSecret: credentials.higgsfieldSecret || undefined,
+            airtablePat: credentials.airtablePat || undefined,
+            airtableBaseId: credentials.airtableBaseId || undefined,
+            airtableTableId: credentials.airtableTableId || undefined,
           }),
         });
         const body = await res.json();
@@ -118,9 +127,15 @@ export default function SettingsPage() {
   const apiKeyFields: { label: string; key: keyof Credentials; hint?: string }[] = [
     { label: "Anthropic API Key", key: "anthropicApiKey" },
     { label: "Gemini API Key", key: "geminiApiKey" },
-    { label: "Higgsfield API Key", key: "higgsfieldApiKey", hint: "cloud.higgsfield.ai" },
+    { label: "Higgsfield API Key", key: "higgsfieldApiKey", hint: "platform.higgsfield.ai" },
     { label: "Higgsfield Secret", key: "higgsfieldSecret" },
     { label: "Google SERP API Key", key: "googleSerpApiKey" },
+  ];
+
+  const airtableFields: { label: string; key: keyof Credentials; hint?: string; isSecret?: boolean }[] = [
+    { label: "Personal Access Token", key: "airtablePat", hint: "Starts with pat...", isSecret: true },
+    { label: "Base ID", key: "airtableBaseId", hint: "Starts with app..." },
+    { label: "Table ID / Name", key: "airtableTableId", hint: "e.g. tblXXX or Products" },
   ];
 
   return (
@@ -191,6 +206,43 @@ export default function SettingsPage() {
             </div>
             <p className="font-ui-label text-ui-label text-text-muted">
               To change your active connection, disconnect and re-pair from the home page.
+            </p>
+          </div>
+        </Section>
+
+        <Section icon="dataset" title="AIRTABLE" subtitle="Two-way sync — trigger the pipeline from Airtable and write generated images back">
+          <div className="space-y-md">
+            {airtableFields.map(({ label, key, hint, isSecret }) => (
+              <div key={key} className="space-y-xs">
+                <div className="flex items-baseline justify-between gap-sm">
+                  <Label htmlFor={key}>{label}</Label>
+                  {hint && <span className="text-xs text-text-muted">{hint}</span>}
+                </div>
+                <div className="flex gap-sm">
+                  <Input
+                    id={key}
+                    type={isSecret && !showSecrets[key] ? "password" : "text"}
+                    value={credentials[key]}
+                    onChange={(e) => handleCredentialChange(key, e.target.value)}
+                    placeholder={isSecret ? "•••••••••••••" : ""}
+                    autoComplete="off"
+                    className="flex-1"
+                  />
+                  {isSecret && (
+                    <button
+                      type="button"
+                      onClick={() => toggleSecret(key)}
+                      className="px-md rounded-lg border border-border text-text-muted hover:text-primary hover:bg-surface-variant/40 transition-colors"
+                      aria-label={showSecrets[key] ? "Hide" : "Show"}
+                    >
+                      <Icon name={showSecrets[key] ? "visibility_off" : "visibility"} size={18} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+            <p className="font-ui-label text-ui-label text-text-muted">
+              After saving, go to <strong>Integrations</strong> to get your Airtable webhook URL and setup steps.
             </p>
           </div>
         </Section>
