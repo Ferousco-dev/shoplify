@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { getShopifyToken } from "@/lib/shopify-token";
 import { verifyAirtableWebhookSecret } from "@/lib/webhook-secret";
@@ -111,16 +111,21 @@ export async function POST(
 
   const origin = new URL(req.url).origin;
   const runnerSecret = process.env.RUNNER_SECRET || process.env.SESSION_SECRET || "";
-  void fetch(`${origin}/api/jobs/${job.id}/run-next-row`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-runner-secret": runnerSecret,
-    },
-    body: JSON.stringify({ shopDomain: store.shop_domain, accessToken }),
-  }).catch((e) =>
-    console.error(`[airtable-webhook] runner kick-off failed for ${job.id}:`, e),
-  );
+  const jobId = job.id;
+  const shopDomain = store.shop_domain as string;
 
-  return NextResponse.json({ ok: true, jobId: job.id });
+  after(async () => {
+    await fetch(`${origin}/api/jobs/${jobId}/run-next-row`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-runner-secret": runnerSecret,
+      },
+      body: JSON.stringify({ shopDomain, accessToken }),
+    }).catch((e) =>
+      console.error(`[airtable-webhook] runner kick-off failed for ${jobId}:`, e),
+    );
+  });
+
+  return NextResponse.json({ ok: true, jobId });
 }
