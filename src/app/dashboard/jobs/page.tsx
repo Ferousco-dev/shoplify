@@ -2,14 +2,14 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { JobSummary } from "@/app/api/jobs/route";
 import { Icon } from "@/components/ui/icon";
 import { DotsLoader } from "@/components/ui/dots-loader";
 import { ProductThumbnail } from "@/components/brand/product-thumbnail";
 import { cn } from "@/lib/cn";
 
-type StatusFilter = "all" | "running" | "completed" | "failed" | "partial";
+type StatusFilter = "all" | "running" | "completed" | "failed";
 type SourceFilter = "all" | "csv" | "manual";
 
 function relativeTime(iso: string): string {
@@ -40,10 +40,24 @@ const ACTIVE = new Set([
   "generating_seo",
 ]);
 
+function isFailed(status: string) {
+  return status === "failed" || status === "partial" || status === "cancelled" || status.startsWith("failed");
+}
+
+function simplifyStatus(status: string): "running" | "completed" | "failed" {
+  if (ACTIVE.has(status)) return "running";
+  if (isFailed(status)) return "failed";
+  return "completed";
+}
+
 export default function JobHistoryPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [windowDays, setWindowDays] = useState(30);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const jobsQuery = useQuery<JobSummary[]>({
     queryKey: ["jobs", "all"],
@@ -66,21 +80,16 @@ export default function JobHistoryPage() {
     const cutoff = Date.now() - windowDays * 86_400_000;
     return jobs.filter((j) => {
       if (new Date(j.created_at).getTime() < cutoff) return false;
-      if (statusFilter === "running" && !ACTIVE.has(j.status)) return false;
-      if (statusFilter === "completed" && j.status !== "completed") return false;
-      if (
-        statusFilter === "failed" &&
-        j.status !== "failed" &&
-        !j.status.startsWith("failed")
-      )
-        return false;
-      if (statusFilter === "partial" && j.status !== "partial") return false;
+      const simple = simplifyStatus(j.status);
+      if (statusFilter === "running" && simple !== "running") return false;
+      if (statusFilter === "completed" && simple !== "completed") return false;
+      if (statusFilter === "failed" && simple !== "failed") return false;
       if (sourceFilter === "manual") return false;
       return true;
     });
   }, [jobs, statusFilter, sourceFilter, windowDays]);
 
-  const completed = jobs.filter((j) => j.status === "completed").length;
+  const completed = jobs.filter((j) => simplifyStatus(j.status) === "completed").length;
   const active = jobs.filter((j) => ACTIVE.has(j.status)).length;
   const energyLevel = active === 0 ? "Calm" : active <= 2 ? "Steady" : "High";
   const energyTone =
@@ -90,8 +99,67 @@ export default function JobHistoryPage() {
         ? "text-primary"
         : "text-processing";
 
+  async function handleDelete(jobId: string) {
+    setDeletingId(jobId);
+    setConfirmDeleteId(null);
+    try {
+      const res = await fetch(`/api/jobs/${jobId}`, { method: "DELETE" });
+      if (res.ok) {
+        queryClient.setQueryData<JobSummary[]>(["jobs", "all"], (prev) =>
+          (prev ?? []).filter((j) => j.id !== jobId),
+        );
+      }
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function handleRetry(job: JobSummary) {
+    setRetryingId(job.id);
+    try {
+      // Get fresh creds from the session via a lightweight endpoint
+      const credsRes = await fetch("/api/shopify/creds");
+      if (!credsRes.ok) return;
+      const { shopDomain, accessToken } = await credsRes.json();
+      await fetch(`/api/jobs/${job.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry", shopDomain, accessToken }),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["jobs", "all"] });
+    } finally {
+      setRetryingId(null);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-lg">
+      {confirmDeleteId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-md">
+          <div className="bg-warm-white rounded-2xl shadow-xl p-lg max-w-sm w-full flex flex-col gap-md">
+            <h2 className="font-section-heading text-base text-text-primary">Delete this job?</h2>
+            <p className="font-ui-label text-ui-label text-text-muted">
+              This will permanently remove the job and all its items. Products already pushed to Shopify are not affected.
+            </p>
+            <div className="flex gap-sm justify-end">
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                className="px-md py-sm rounded-full font-ui-label text-ui-label text-text-muted bg-surface-container-low hover:bg-surface-variant transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDelete(confirmDeleteId)}
+                disabled={deletingId === confirmDeleteId}
+                className="px-md py-sm rounded-full font-ui-label text-ui-label text-on-error bg-error hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {deletingId === confirmDeleteId ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header>
         <p className="font-spoonie-italic text-spoonie-italic text-text-muted italic">
           Gentle Reflection
@@ -185,35 +253,59 @@ export default function JobHistoryPage() {
           </div>
         ) : (
           <>
+            {/* Mobile list */}
             <ul className="md:hidden flex flex-col divide-y divide-border/30">
-              {filtered.map((j) => (
-                <li key={j.id}>
-                  <Link
-                    href={j.status === "awaiting_review" ? `/dashboard/jobs/${j.id}/scrape-review` : `/dashboard/jobs/${j.id}`}
-                    className="block px-md py-md hover:bg-surface-container-low/40 transition-colors"
-                  >
+              {filtered.map((j) => {
+                const simple = simplifyStatus(j.status);
+                return (
+                  <li key={j.id} className="px-md py-md">
                     <div className="flex items-start gap-sm">
-                      <ProductThumbnail src={null} alt={j.source_filename} size="sm" />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-text-primary truncate">
-                          {j.source_filename}
-                        </p>
-                        <div className="flex flex-wrap items-center gap-xs mt-xs">
-                          <StatusPill status={j.status} />
-                          <span className="text-xs text-text-muted font-mono-data">
-                            {j.completed_items}/{j.total_items}
-                          </span>
-                          <span className="text-xs text-text-muted">
-                            · {relativeTime(j.created_at)}
-                          </span>
+                      <Link
+                        href={j.status === "awaiting_review" ? `/dashboard/jobs/${j.id}/scrape-review` : `/dashboard/jobs/${j.id}`}
+                        className="flex-1 min-w-0 flex items-start gap-sm hover:opacity-80 transition-opacity"
+                      >
+                        <ProductThumbnail src={null} alt={j.source_filename} size="sm" />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-text-primary truncate">
+                            {j.source_filename}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-xs mt-xs">
+                            <StatusPill simple={simple} />
+                            <span className="text-xs text-text-muted font-mono-data">
+                              {j.completed_items}/{j.total_items}
+                            </span>
+                            <span className="text-xs text-text-muted">
+                              · {relativeTime(j.created_at)}
+                            </span>
+                          </div>
                         </div>
-                      </div>
+                      </Link>
+                      {simple === "failed" && (
+                        <div className="flex gap-xs flex-shrink-0">
+                          <button
+                            onClick={() => handleRetry(j)}
+                            disabled={retryingId === j.id}
+                            title="Retry"
+                            className="p-2 rounded-full text-primary hover:bg-surface-variant/40 transition-colors disabled:opacity-40"
+                          >
+                            <Icon name="refresh" size={16} />
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(j.id)}
+                            title="Delete"
+                            className="p-2 rounded-full text-error hover:bg-error-container/40 transition-colors"
+                          >
+                            <Icon name="delete" size={16} />
+                          </button>
+                        </div>
+                      )}
                     </div>
-                  </Link>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
 
+            {/* Desktop table */}
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-surface-container-low">
@@ -226,59 +318,87 @@ export default function JobHistoryPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((j) => (
-                    <tr
-                      key={j.id}
-                      className="border-t border-border/30 hover:bg-surface-container-low/40 transition-colors"
-                    >
-                      <td className="px-lg py-md">
-                        <div className="flex items-center gap-md">
-                          <ProductThumbnail src={null} alt={j.source_filename} size="sm" />
-                          <div className="min-w-0">
-                            <div className="font-medium text-text-primary truncate max-w-[260px]">
-                              {j.source_filename}
-                            </div>
-                            <div className="text-xs text-text-muted font-mono-data">
-                              {j.completed_items}/{j.total_items} items
-                              {j.failed_items > 0 && (
-                                <span className="text-error"> · {j.failed_items} failed</span>
-                              )}
+                  {filtered.map((j) => {
+                    const simple = simplifyStatus(j.status);
+                    return (
+                      <tr
+                        key={j.id}
+                        className="border-t border-border/30 hover:bg-surface-container-low/40 transition-colors"
+                      >
+                        <td className="px-lg py-md">
+                          <div className="flex items-center gap-md">
+                            <ProductThumbnail src={null} alt={j.source_filename} size="sm" />
+                            <div className="min-w-0">
+                              <div className="font-medium text-text-primary truncate max-w-[260px]">
+                                {j.source_filename}
+                              </div>
+                              <div className="text-xs text-text-muted font-mono-data">
+                                {j.completed_items}/{j.total_items} items
+                                {j.failed_items > 0 && (
+                                  <span className="text-error"> · {j.failed_items} failed</span>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </td>
-                      <td className="px-lg py-md text-text-muted text-sm">
-                        <span className="inline-flex items-center gap-xs">
-                          <Icon name="upload_file" size={14} />
-                          CSV upload
-                        </span>
-                      </td>
-                      <td className="px-lg py-md">
-                        <StatusPill status={j.status} />
-                      </td>
-                      <td className="px-lg py-md text-sm">
-                        <div className="text-text-primary">
-                          {new Date(j.created_at).toLocaleDateString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
-                        </div>
-                        <div className="text-xs text-text-muted">
-                          {relativeTime(j.created_at)}
-                        </div>
-                      </td>
-                      <td className="px-lg py-md text-right">
-                        <Link
-                          href={j.status === "awaiting_review" ? `/dashboard/jobs/${j.id}/scrape-review` : `/dashboard/jobs/${j.id}`}
-                          className="text-primary text-xs font-ui-label hover:underline inline-flex items-center gap-xs px-sm py-1"
-                        >
-                          Open
-                          <Icon name="arrow_forward" size={14} />
-                        </Link>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-lg py-md text-text-muted text-sm">
+                          <span className="inline-flex items-center gap-xs">
+                            <Icon name="upload_file" size={14} />
+                            CSV upload
+                          </span>
+                        </td>
+                        <td className="px-lg py-md">
+                          <StatusPill simple={simple} />
+                        </td>
+                        <td className="px-lg py-md text-sm">
+                          <div className="text-text-primary">
+                            {new Date(j.created_at).toLocaleDateString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                          </div>
+                          <div className="text-xs text-text-muted">
+                            {relativeTime(j.created_at)}
+                          </div>
+                        </td>
+                        <td className="px-lg py-md text-right">
+                          <div className="inline-flex items-center gap-xs justify-end">
+                            <Link
+                              href={j.status === "awaiting_review" ? `/dashboard/jobs/${j.id}/scrape-review` : `/dashboard/jobs/${j.id}`}
+                              className="text-primary text-xs font-ui-label hover:underline inline-flex items-center gap-xs px-sm py-1"
+                            >
+                              Open
+                              <Icon name="arrow_forward" size={14} />
+                            </Link>
+                            {simple === "failed" && (
+                              <>
+                                <button
+                                  onClick={() => handleRetry(j)}
+                                  disabled={retryingId === j.id}
+                                  title="Retry failed items"
+                                  className="p-1.5 rounded-full text-primary hover:bg-surface-variant/40 transition-colors disabled:opacity-40"
+                                >
+                                  {retryingId === j.id ? (
+                                    <span className="text-[10px] font-ui-label">…</span>
+                                  ) : (
+                                    <Icon name="refresh" size={15} />
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmDeleteId(j.id)}
+                                  title="Delete job"
+                                  className="p-1.5 rounded-full text-error hover:bg-error-container/40 transition-colors"
+                                >
+                                  <Icon name="delete" size={15} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -330,11 +450,10 @@ function RefineCard({
           onChange={(e) => onStatusChange(e.target.value as StatusFilter)}
           className="w-full bg-surface-container-low border border-border rounded-lg px-md py-sm font-ui-label text-ui-label cursor-pointer focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
         >
-          <option value="all">All Statuses</option>
-          <option value="running">Running</option>
+          <option value="all">All</option>
+          <option value="running">Processing</option>
           <option value="completed">Completed</option>
           <option value="failed">Failed</option>
-          <option value="partial">Partial</option>
         </select>
       </div>
       <div>
@@ -412,24 +531,16 @@ function StatCard({
   );
 }
 
-function StatusPill({ status }: { status: string }) {
+function StatusPill({ simple }: { simple: "running" | "completed" | "failed" }) {
   const tone =
-    status === "completed"
+    simple === "completed"
       ? "bg-badge-ready-bg text-badge-ready-text"
-      : status === "failed" || status.startsWith("failed")
+      : simple === "failed"
         ? "bg-error-container text-on-error-container"
-        : status === "partial"
-          ? "bg-badge-running-bg text-badge-running-text"
-          : ACTIVE.has(status)
-            ? "bg-badge-running-bg text-badge-running-text"
-            : "bg-surface-variant text-text-muted";
+        : "bg-badge-running-bg text-badge-running-text";
 
   const label =
-    status === "awaiting_review"
-      ? "Awaiting review"
-      : ACTIVE.has(status) && status !== "pending"
-        ? "Processing"
-        : status.charAt(0).toUpperCase() + status.slice(1);
+    simple === "completed" ? "Completed" : simple === "failed" ? "Failed" : "Processing";
 
   return (
     <span

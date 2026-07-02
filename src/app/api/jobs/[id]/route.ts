@@ -178,47 +178,91 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   const { id } = await ctx.params;
   const guard = await ensureOwnedJob(id);
   if ("error" in guard) return guard.error;
-  const body = (await req.json().catch(() => ({}))) as { action?: string };
+  const { auth } = guard;
+  const body = (await req.json().catch(() => ({}))) as { action?: string; shopDomain?: string; accessToken?: string };
 
-  if (body.action !== "cancel") {
-    return NextResponse.json(
-      { error: "Unsupported action. Use { action: 'cancel' }." },
-      { status: 400 },
-    );
+  if (body.action === "cancel") {
+    const { data: job, error: fetchErr } = await supabaseAdmin
+      .from("jobs")
+      .select("status")
+      .eq("id", id)
+      .maybeSingle();
+    if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+    if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+
+    if (!ACTIVE_STATUSES.has(job.status)) {
+      return NextResponse.json(
+        { error: `Cannot cancel a job in '${job.status}' state.` },
+        { status: 409 },
+      );
+    }
+
+    const { error } = await supabaseAdmin
+      .from("jobs")
+      .update({
+        status: "cancelled",
+        finished_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    await supabaseAdmin
+      .from("job_items")
+      .update({ status: "cancelled", updated_at: new Date().toISOString() })
+      .eq("job_id", id)
+      .in("status", Array.from(ACTIVE_STATUSES));
+
+    return NextResponse.json({ ok: true });
   }
 
-  const { data: job, error: fetchErr } = await supabaseAdmin
-    .from("jobs")
-    .select("status")
-    .eq("id", id)
-    .maybeSingle();
-  if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 });
-  if (!job) return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  if (body.action === "retry") {
+    if (!body.shopDomain || !body.accessToken) {
+      return NextResponse.json(
+        { error: "shopDomain and accessToken required for retry" },
+        { status: 400 },
+      );
+    }
 
-  if (!ACTIVE_STATUSES.has(job.status)) {
-    return NextResponse.json(
-      { error: `Cannot cancel a job in '${job.status}' state.` },
-      { status: 409 },
-    );
+    // Reset all failed/cancelled items back to pending
+    await supabaseAdmin
+      .from("job_items")
+      .update({ status: "pending", error: null, updated_at: new Date().toISOString() })
+      .eq("job_id", id)
+      .in("status", ["failed", "failed_images", "cancelled", "error"]);
+
+    // Reset job to running
+    const { error: jobUpdateErr } = await supabaseAdmin
+      .from("jobs")
+      .update({
+        status: "running",
+        finished_at: null,
+        error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+    if (jobUpdateErr) return NextResponse.json({ error: jobUpdateErr.message }, { status: 500 });
+
+    // Kick off the runner
+    const runnerSecret = process.env.RUNNER_SECRET || process.env.SESSION_SECRET || "";
+    void fetch(
+      `${new URL(req.url).origin}/api/jobs/${id}/run-next-row`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-runner-secret": runnerSecret },
+        body: JSON.stringify({ shopDomain: body.shopDomain, accessToken: body.accessToken }),
+      },
+    ).catch((e) => console.error(`[retry] runner kick-off failed for ${id}:`, e));
+
+    return NextResponse.json({ ok: true });
   }
 
-  const { error } = await supabaseAdmin
-    .from("jobs")
-    .update({
-      status: "cancelled",
-      finished_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  await supabaseAdmin
-    .from("job_items")
-    .update({ status: "cancelled", updated_at: new Date().toISOString() })
-    .eq("job_id", id)
-    .in("status", Array.from(ACTIVE_STATUSES));
-
-  return NextResponse.json({ ok: true });
+  // Silence unused variable lint warning — auth is verified above in ensureOwnedJob
+  void auth;
+  return NextResponse.json(
+    { error: "Unsupported action. Use cancel or retry." },
+    { status: 400 },
+  );
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {

@@ -11,14 +11,18 @@ import { ProductThumbnail } from "@/components/brand/product-thumbnail";
 import { Badge, statusBadgeTone, Input } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
-const FILTERS = ["all", "published", "draft", "archived"] as const;
+const FILTERS = ["all", "published", "draft", "failed"] as const;
 type Filter = (typeof FILTERS)[number];
+
+function isFailed(status: string) {
+  return status === "failed" || status === "failed_images" || status.startsWith("failed");
+}
 
 function matchesFilter(p: ProductSummary, f: Filter): boolean {
   if (f === "all") return true;
   if (f === "published") return !!p.shopify_product_id;
-  if (f === "archived") return p.status === "archived";
-  if (f === "draft") return !p.shopify_product_id && p.status !== "archived";
+  if (f === "failed") return !p.shopify_product_id && isFailed(p.status);
+  if (f === "draft") return !p.shopify_product_id && !isFailed(p.status) && p.status !== "archived";
   return true;
 }
 
@@ -129,11 +133,9 @@ export default function ProductsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-md">
           {filtered.map((product) => {
             const published = !!product.shopify_product_id;
-            const tone = product.status === "archived"
-              ? "muted"
-              : published
-                ? "success"
-                : "draft";
+            const failed = !published && isFailed(product.status);
+            const tone = published ? "success" : failed ? "danger" : "draft";
+            const statusLabel = published ? "Published" : failed ? "Failed" : "Draft";
             return (
               <article
                 key={product.id}
@@ -155,7 +157,7 @@ export default function ProductsPage() {
                       <span>{timeAgo(product.created_at)}</span>
                     </div>
                     <div className="flex items-center justify-between gap-sm mt-auto pt-xs">
-                      <Badge tone={tone}>{published ? "published" : product.status}</Badge>
+                      <Badge tone={tone}>{statusLabel}</Badge>
                       {product.shopify_handle && (
                         <a
                           href={`https://${product.shopify_handle}`}
